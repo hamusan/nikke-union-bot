@@ -42,7 +42,7 @@ class PlayerCog(commands.Cog):
         )
 
         try:
-            player = self.player_service.register_player(
+            player, reactivated = self.player_service.register_player(
                 discord_id=discord_id,
                 nickname=player_name,
             )
@@ -73,11 +73,34 @@ class PlayerCog(commands.Cog):
             player.nickname,
         )
 
-        await interaction.response.send_message(
-            (
+        if reactivated:
+            logger.info(
+                "Player reactivated: id={}, discord_id={}, nickname={}",
+                player.id,
+                player.discord_id,
+                player.nickname,
+            )
+
+            message = (
+                "プレイヤーを再有効化しました。\n\n"
+                f"**プレイヤー名:** {player.nickname}"
+            )
+
+        else:
+            logger.info(
+                "Player registered: id={}, discord_id={}, nickname={}",
+                player.id,
+                player.discord_id,
+                player.nickname,
+            )
+
+            message = (
                 "プレイヤー登録が完了しました。\n\n"
                 f"**プレイヤー名:** {player.nickname}"
-            ),
+            )
+
+        await interaction.response.send_message(
+            message,
             ephemeral=True,
         )
     

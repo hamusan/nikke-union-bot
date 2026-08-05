@@ -15,8 +15,14 @@ class PlayerService:
         self,
         discord_id: str,
         nickname: str,
-    ) -> Player:
-        """新しいPlayerを登録する。"""
+    ) -> tuple[Player, bool]:
+        """
+        Playerを登録する。
+
+        Returns:
+            tuple[Player, bool]:
+                Playerと、再有効化されたかどうか。
+        """
 
         with session_scope() as session:
             repository = PlayerRepository(session)
@@ -26,16 +32,24 @@ class PlayerService:
             )
 
             if existing_player is not None:
-                raise PlayerAlreadyExistsError(
-                    f"Discord ID {discord_id} is already registered."
+                if existing_player.active:
+                    raise PlayerAlreadyExistsError(
+                        f"Discord ID {discord_id} is already registered."
+                    )
+
+                player = repository.reactivate(
+                    player=existing_player,
+                    nickname=nickname,
                 )
+
+                return player, True
 
             player = repository.create(
                 discord_id=discord_id,
                 nickname=nickname,
             )
 
-            return player
+            return player, False
 
     def get_player(
         self,

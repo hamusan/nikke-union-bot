@@ -77,3 +77,17 @@ class PlayerRepository:
         self._session.flush()
 
         return player
+
+    def reactivate(
+        self,
+        player: Player,
+        nickname: str,
+    ) -> Player:
+        """無効化されたPlayerを再有効化する。"""
+
+        player.active = True
+        player.nickname = nickname
+
+        self._session.flush()
+
+        return player

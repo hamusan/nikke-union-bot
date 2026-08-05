@@ -1,15 +1,21 @@
+from bot.constants import BOT_NAME
 from bot.core.bot import create_bot
 from bot.core.database import initialize_database
 from bot.core.logger import get_logger
+from bot.version import VERSION
 
 
 logger = get_logger()
 
 
 def main() -> None:
-    bot, config = create_bot()
+    logger.info(
+        "Starting {} v{}",
+        BOT_NAME,
+        VERSION,
+    )
 
-    logger.info("Logger initialized")
+    bot, config = create_bot()
 
     initialize_database()
     logger.info("Database initialized")
