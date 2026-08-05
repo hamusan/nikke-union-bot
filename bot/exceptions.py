@@ -43,3 +43,26 @@ class InvalidTeamNameError(NikkeBotError):
 
 class PlayerInactiveError(NikkeBotError):
     """Playerが無効になっている場合のエラー。"""
+
+class RaidAlreadyExistsError(NikkeBotError):
+    """同名のRaidが既に存在する場合のエラー。"""
+
+
+class ActiveRaidNotFoundError(NikkeBotError):
+    """現在開催中のRaidが存在しない場合のエラー。"""
+
+
+class BossNotFoundError(NikkeBotError):
+    """Bossが見つからない場合のエラー。"""
+
+
+class InvalidBossNumberError(NikkeBotError):
+    """Boss番号が不正な場合のエラー。"""
+
+
+class InvalidBossHpError(NikkeBotError):
+    """Boss HPが不正な場合のエラー."""
+
+
+class InvalidBossNameError(NikkeBotError):
+    """Boss名が不正な場合のエラー。"""
