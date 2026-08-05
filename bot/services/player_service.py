@@ -1,6 +1,7 @@
 from bot.core.database import session_scope
 from bot.exceptions import (
     PlayerAlreadyExistsError,
+    PlayerAlreadyInactiveError,
     PlayerNotFoundError,
 )
 from bot.models.player import Player
@@ -63,3 +64,28 @@ class PlayerService:
             repository = PlayerRepository(session)
 
             return repository.list_active()
+    
+    def deactivate_player(
+        self,
+        discord_id: str,
+    ) -> Player:
+        """Playerを無効化する。"""
+
+        with session_scope() as session:
+            repository = PlayerRepository(session)
+
+            player = repository.get_by_discord_id(
+                discord_id
+            )
+
+            if player is None:
+                raise PlayerNotFoundError(
+                    f"Discord ID {discord_id} was not found."
+                )
+
+            if not player.active:
+                raise PlayerAlreadyInactiveError(
+                    f"Discord ID {discord_id} is already inactive."
+                )
+
+            return repository.deactivate(player)

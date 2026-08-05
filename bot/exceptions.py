@@ -8,3 +8,7 @@ class PlayerAlreadyExistsError(NikkeBotError):
 
 class PlayerNotFoundError(NikkeBotError):
     """Playerが見つからない場合のエラー。"""
+
+
+class PlayerAlreadyInactiveError(NikkeBotError):
+    """Playerがすでに無効になっている場合のエラー。"""

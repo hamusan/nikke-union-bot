@@ -3,7 +3,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.core.logger import get_logger
-from bot.exceptions import PlayerAlreadyExistsError
+from bot.exceptions import (
+    PlayerAlreadyExistsError,
+    PlayerAlreadyInactiveError,
+    PlayerNotFoundError,
+)
 from bot.services import PlayerService
 
 
@@ -72,6 +76,117 @@ class PlayerCog(commands.Cog):
         await interaction.response.send_message(
             (
                 "プレイヤー登録が完了しました。\n\n"
+                f"**プレイヤー名:** {player.nickname}"
+            ),
+            ephemeral=True,
+        )
+    
+    @app_commands.command(
+        name="player-list",
+        description="登録されているプレイヤー一覧を表示します。",
+    )
+    async def player_list(
+        self,
+        interaction: discord.Interaction,
+    ) -> None:
+        try:
+            players = self.player_service.list_active_players()
+
+        except Exception:
+            logger.exception(
+                "Failed to get player list."
+            )
+
+            await interaction.response.send_message(
+                "プレイヤー一覧の取得中にエラーが発生しました。",
+                ephemeral=True,
+            )
+            return
+
+        if not players:
+            await interaction.response.send_message(
+                "現在登録されているプレイヤーはいません。",
+                ephemeral=True,
+            )
+            return
+
+        player_lines = [
+            f"{index}. {player.nickname}"
+            for index, player in enumerate(
+                players,
+                start=1,
+            )
+        ]
+
+        message = (
+            "**登録プレイヤー一覧**\n\n"
+            + "\n".join(player_lines)
+            + f"\n\n合計: **{len(players)}人**"
+        )
+
+        await interaction.response.send_message(
+            message,
+            ephemeral=True,
+        )
+
+    @app_commands.command(
+        name="player-deactivate",
+        description="プレイヤーを無効化します。",
+    )
+    @app_commands.describe(
+        member="無効化するDiscordメンバー",
+    )
+    @app_commands.default_permissions(
+        administrator=True
+    )
+    async def player_deactivate(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+    ) -> None:
+        discord_id = str(member.id)
+
+        try:
+            player = self.player_service.deactivate_player(
+                discord_id
+            )
+
+        except PlayerNotFoundError:
+            await interaction.response.send_message(
+                "そのメンバーはプレイヤー登録されていません。",
+                ephemeral=True,
+            )
+            return
+
+        except PlayerAlreadyInactiveError:
+            await interaction.response.send_message(
+                "そのプレイヤーはすでに無効化されています。",
+                ephemeral=True,
+            )
+            return
+
+        except Exception:
+            logger.exception(
+                "Player deactivation failed: discord_id={}",
+                discord_id,
+            )
+
+            await interaction.response.send_message(
+                "プレイヤーの無効化中にエラーが発生しました。",
+                ephemeral=True,
+            )
+            return
+
+        logger.info(
+            "Player deactivated: id={}, discord_id={}, nickname={}",
+            player.id,
+            player.discord_id,
+            player.nickname,
+        )
+
+        await interaction.response.send_message(
+            (
+                "プレイヤーを無効化しました。\n\n"
                 f"**プレイヤー名:** {player.nickname}"
             ),
             ephemeral=True,

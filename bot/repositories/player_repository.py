@@ -65,3 +65,15 @@ class PlayerRepository:
         return list(
             self._session.scalars(statement).all()
         )
+    
+    def deactivate(
+        self,
+        player: Player,
+    ) -> Player:
+        """Playerを無効化する。"""
+
+        player.active = False
+
+        self._session.flush()
+
+        return player
