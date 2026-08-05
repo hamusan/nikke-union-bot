@@ -6,18 +6,38 @@ from dotenv import load_dotenv
 
 @dataclass(frozen=True)
 class Config:
-    """アプリケーション設定"""
+    """アプリケーション設定。"""
 
     discord_token: str
-    guild_id: str
+    guild_id: int
 
 
 def load_config() -> Config:
-    """.env を読み込んで Config を生成する"""
+    """環境変数から設定を読み込む。"""
 
     load_dotenv()
 
+    discord_token = os.getenv("DISCORD_TOKEN", "").strip()
+    guild_id_raw = os.getenv("GUILD_ID", "").strip()
+
+    if not discord_token:
+        raise RuntimeError(
+            "DISCORD_TOKEN が .env に設定されていません。"
+        )
+
+    if not guild_id_raw:
+        raise RuntimeError(
+            "GUILD_ID が .env に設定されていません。"
+        )
+
+    try:
+        guild_id = int(guild_id_raw)
+    except ValueError as error:
+        raise RuntimeError(
+            "GUILD_ID は数字で指定してください。"
+        ) from error
+
     return Config(
-        discord_token=os.getenv("DISCORD_TOKEN", ""),
-        guild_id=os.getenv("GUILD_ID", ""),
+        discord_token=discord_token,
+        guild_id=guild_id,
     )
