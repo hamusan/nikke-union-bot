@@ -1,0 +1,2 @@
+BOT_NAME = "NIKKE Union Bot"
+BOT_VERSION = "0.1.0"
