@@ -1,21 +1,17 @@
-from bot.core.config import load_config
+from bot.core.bot import create_bot
+from bot.core.logger import get_logger
 
 
-def main() -> None:
+logger = get_logger()
 
-    config = load_config()
 
-    print("=" * 41)
-    print(" NIKKE Union Raid Bot v0.1.0")
-    print("=" * 41)
+def main():
 
-    print(
-        f"Discord Token : {'Loaded' if config.discord_token else 'Not Found'}"
-    )
+    bot, config = create_bot()
 
-    print(
-        f"Guild ID      : {'Loaded' if config.guild_id else 'Not Found'}"
-    )
+    logger.info("Logger initialized")
+
+    bot.run(config.discord_token)
 
 
 if __name__ == "__main__":

@@ -1,2 +1,1 @@
-BOT_NAME = "NIKKE Union Bot"
-BOT_VERSION = "0.1.0"
+BOT_NAME = "NIKKE Union Raid Bot"
