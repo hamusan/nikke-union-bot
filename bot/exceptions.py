@@ -69,3 +69,12 @@ class InvalidBossNameError(NikkeBotError):
 
 class InvalidRaidNameError(NikkeBotError):
     """Raid名が不正な場合のエラー。"""
+
+class InvalidDamageError(NikkeBotError):
+    """Damage値が不正な場合のエラー。"""
+
+
+class TeamInactiveError(NikkeBotError):
+    """使用しようとしたTeamが無効な場合のエラー。"""
+
+    
