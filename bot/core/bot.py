@@ -11,6 +11,7 @@ logger = get_logger()
 EXTENSIONS = (
     "bot.cogs.ping",
     "bot.cogs.player",
+    "bot.cogs.team",
 )
 
 
