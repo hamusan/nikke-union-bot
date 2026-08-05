@@ -3,7 +3,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from bot.models.base import Base
+from bot.models import Base
 
 
 DATABASE_DIR = Path("database")
