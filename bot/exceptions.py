@@ -66,3 +66,6 @@ class InvalidBossHpError(NikkeBotError):
 
 class InvalidBossNameError(NikkeBotError):
     """Boss名が不正な場合のエラー。"""
+
+class InvalidRaidNameError(NikkeBotError):
+    """Raid名が不正な場合のエラー。"""

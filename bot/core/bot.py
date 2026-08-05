@@ -12,6 +12,7 @@ EXTENSIONS = (
     "bot.cogs.ping",
     "bot.cogs.player",
     "bot.cogs.team",
+    "bot.cogs.raid",
 )
 
 

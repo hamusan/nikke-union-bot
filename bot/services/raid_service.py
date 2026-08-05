@@ -5,6 +5,7 @@ from bot.exceptions import (
     InvalidBossHpError,
     InvalidBossNameError,
     InvalidBossNumberError,
+    InvalidRaidNameError,
     RaidAlreadyExistsError,
 )
 from bot.models.boss import Boss
@@ -30,7 +31,7 @@ class RaidService:
         normalized_name = name.strip()
 
         if not normalized_name:
-            raise ValueError(
+            raise InvalidRaidNameError(
                 "Raid name must not be empty."
             )
 
