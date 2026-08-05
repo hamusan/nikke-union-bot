@@ -45,3 +45,9 @@ class Boss(Base):
     damage_records: Mapped[list["DamageRecord"]] = relationship(
         back_populates="boss",
     )
+
+    phases: Mapped[list["BossPhase"]] = relationship(
+        back_populates="boss",
+        cascade="all, delete-orphan",
+        order_by="BossPhase.phase_no",
+    )

@@ -1,3 +1,6 @@
+from bot.services.ocr.ocr_service import (
+    BattleOcrService,
+)
 from bot.services.ocr.result_parser import (
     BattleOcrResult,
     BattleResultParser,
@@ -6,5 +9,6 @@ from bot.services.ocr.result_parser import (
 
 __all__ = [
     "BattleOcrResult",
+    "BattleOcrService",
     "BattleResultParser",
 ]

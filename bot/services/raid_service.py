@@ -7,13 +7,19 @@ from bot.exceptions import (
     InvalidBossNumberError,
     InvalidRaidNameError,
     RaidAlreadyExistsError,
+    BossPhaseAlreadyExistsError,
+    BossPhaseNotFoundError,
+    InvalidPhaseNumberError,
 )
 from bot.models.boss import Boss
 from bot.models.raid import Raid
 from bot.repositories import (
     BossRepository,
     RaidRepository,
+    BossPhaseRepository,
 )
+
+from bot.models.boss_phase import BossPhase
 
 
 class RaidService:
@@ -202,4 +208,199 @@ class RaidService:
                 "Boss number must be between "
                 f"{self.BOSS_MIN_NUMBER} and "
                 f"{self.BOSS_MAX_NUMBER}."
+            )
+    
+    def set_boss_phase(
+        self,
+        boss_no: int,
+        phase_no: int,
+        max_hp: int,
+    ) -> BossPhase:
+        """BossのPhaseと最大HPを登録・更新する。"""
+
+        self._validate_boss_number(
+            boss_no
+        )
+
+        if phase_no <= 0:
+            raise InvalidPhaseNumberError(
+                "Phase number must be greater than zero."
+            )
+
+        if max_hp <= 0:
+            raise InvalidBossHpError(
+                "Boss HP must be greater than zero."
+            )
+
+        with session_scope() as session:
+            raid_repository = RaidRepository(
+                session
+            )
+            boss_repository = BossRepository(
+                session
+            )
+            phase_repository = BossPhaseRepository(
+                session
+            )
+
+            raid = raid_repository.get_active()
+
+            if raid is None:
+                raise ActiveRaidNotFoundError(
+                    "Active Raid was not found."
+                )
+
+            boss = boss_repository.get_by_raid_and_number(
+                raid_id=raid.id,
+                boss_no=boss_no,
+            )
+
+            if boss is None:
+                raise BossNotFoundError(
+                    f"Boss {boss_no} was not found."
+                )
+
+            same_hp_phase = (
+                phase_repository.get_by_boss_and_max_hp(
+                    boss_id=boss.id,
+                    max_hp=max_hp,
+                )
+            )
+
+            if (
+                same_hp_phase is not None
+                and same_hp_phase.phase_no != phase_no
+            ):
+                raise BossPhaseAlreadyExistsError(
+                    f"Max HP {max_hp} is already assigned "
+                    f"to Phase {same_hp_phase.phase_no}."
+                )
+
+            phase = (
+                phase_repository.get_by_boss_and_phase(
+                    boss_id=boss.id,
+                    phase_no=phase_no,
+                )
+            )
+
+            if phase is None:
+                return phase_repository.create(
+                    boss_id=boss.id,
+                    phase_no=phase_no,
+                    max_hp=max_hp,
+                )
+
+            return phase_repository.update_max_hp(
+                phase=phase,
+                max_hp=max_hp,
+            )
+
+    def resolve_boss_phase(
+        self,
+        boss_name: str,
+        max_hp: int,
+    ) -> BossPhase:
+        """Boss名と最大HPからPhaseを判定する。"""
+
+        normalized_boss_name = (
+            boss_name.strip()
+        )
+
+        if not normalized_boss_name:
+            raise BossNotFoundError(
+                "Boss name must not be empty."
+            )
+
+        if max_hp <= 0:
+            raise InvalidBossHpError(
+                "Boss HP must be greater than zero."
+            )
+
+        with session_scope() as session:
+            raid_repository = RaidRepository(
+                session
+            )
+            boss_repository = BossRepository(
+                session
+            )
+            phase_repository = BossPhaseRepository(
+                session
+            )
+
+            raid = raid_repository.get_active()
+
+            if raid is None:
+                raise ActiveRaidNotFoundError(
+                    "Active Raid was not found."
+                )
+
+            boss = boss_repository.get_by_raid_and_name(
+                raid_id=raid.id,
+                name=normalized_boss_name,
+            )
+
+            if boss is None:
+                raise BossNotFoundError(
+                    f"Boss '{normalized_boss_name}' "
+                    "was not found."
+                )
+
+            phase = (
+                phase_repository.get_by_boss_and_max_hp(
+                    boss_id=boss.id,
+                    max_hp=max_hp,
+                )
+            )
+
+            if phase is None:
+                raise BossPhaseNotFoundError(
+                    (
+                        f"Phase was not found for "
+                        f"Boss '{boss.name}' "
+                        f"and Max HP {max_hp}."
+                    )
+                )
+
+            return phase
+
+    def list_boss_phases(
+        self,
+        boss_no: int,
+    ) -> list[BossPhase]:
+        """BossのPhase一覧を取得する。"""
+
+        self._validate_boss_number(
+            boss_no
+        )
+
+        with session_scope() as session:
+            raid_repository = RaidRepository(
+                session
+            )
+            boss_repository = BossRepository(
+                session
+            )
+            phase_repository = BossPhaseRepository(
+                session
+            )
+
+            raid = raid_repository.get_active()
+
+            if raid is None:
+                raise ActiveRaidNotFoundError(
+                    "Active Raid was not found."
+                )
+
+            boss = boss_repository.get_by_raid_and_number(
+                raid_id=raid.id,
+                boss_no=boss_no,
+            )
+
+            if boss is None:
+                raise BossNotFoundError(
+                    f"Boss {boss_no} was not found."
+                )
+
+            return phase_repository.list_by_boss_id(
+                boss.id
             )

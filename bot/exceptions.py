@@ -73,9 +73,19 @@ class InvalidRaidNameError(NikkeBotError):
 class InvalidDamageError(NikkeBotError):
     """Damage値が不正な場合のエラー。"""
 
-
 class TeamInactiveError(NikkeBotError):
     """使用しようとしたTeamが無効な場合のエラー。"""
 
 class InvalidTeamNumberError(NikkeBotError):
     """編成番号が不正な場合のエラー。"""
+
+class BossPhaseNotFoundError(NikkeBotError):
+    """BossのPhase情報が見つからない場合のエラー。"""
+
+
+class BossPhaseAlreadyExistsError(NikkeBotError):
+    """同じ最大HPが別Phaseに登録済みの場合のエラー。"""
+
+
+class InvalidPhaseNumberError(NikkeBotError):
+    """Phase番号が不正な場合のエラー。"""

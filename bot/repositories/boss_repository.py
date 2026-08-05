@@ -84,3 +84,19 @@ class BossRepository:
         self._session.flush()
 
         return boss
+
+    def get_by_raid_and_name(
+        self,
+        raid_id: int,
+        name: str,
+    ) -> Boss | None:
+        """Raid内のBossを名前から取得する。"""
+
+        statement = select(Boss).where(
+            Boss.raid_id == raid_id,
+            Boss.name == name,
+        )
+
+        return self._session.scalar(
+            statement
+        )
