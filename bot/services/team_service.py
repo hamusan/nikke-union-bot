@@ -3,10 +3,9 @@ from bot.exceptions import (
     DuplicateCharacterError,
     InvalidCharacterNameError,
     InvalidTeamMemberCountError,
-    InvalidTeamNameError,
+    InvalidTeamNumberError,
     PlayerInactiveError,
     PlayerNotFoundError,
-    TeamAlreadyExistsError,
     TeamAlreadyInactiveError,
     TeamNotFoundError,
 )
@@ -26,18 +25,11 @@ class TeamService:
     def create_team(
         self,
         discord_id: str,
-        team_name: str,
+        discord_name: str,
         character_names: list[str],
         memo: str | None = None,
     ) -> Team:
         """5人編成を新規作成する。"""
-
-        normalized_team_name = team_name.strip()
-
-        if not normalized_team_name:
-            raise InvalidTeamNameError(
-                "Team name must not be empty."
-            )
 
         if len(character_names) != self.TEAM_MEMBER_COUNT:
             raise InvalidTeamMemberCountError(
@@ -78,8 +70,14 @@ class TeamService:
             )
 
             if player is None:
-                raise PlayerNotFoundError(
-                    f"Discord ID {discord_id} was not found."
+                normalized_discord_name = discord_name.strip()
+
+                if not normalized_discord_name:
+                    normalized_discord_name = "Unknown Player"
+
+                player = player_repository.create(
+                    discord_id=discord_id,
+                    nickname=normalized_discord_name,
                 )
 
             if not player.active:
@@ -87,18 +85,9 @@ class TeamService:
                     f"Discord ID {discord_id} is inactive."
                 )
 
-            existing_team = (
-                team_repository.get_by_player_and_name(
-                    player_id=player.id,
-                    team_name=normalized_team_name,
-                )
+            team_no = team_repository.get_next_team_number(
+                player.id
             )
-
-            if existing_team is not None:
-                raise TeamAlreadyExistsError(
-                    f"Team '{normalized_team_name}' "
-                    "already exists."
-                )
 
             normalized_memo = (
                 memo.strip()
@@ -108,7 +97,7 @@ class TeamService:
 
             team = team_repository.create(
                 player_id=player.id,
-                team_name=normalized_team_name,
+                team_no=team_no,
                 memo=normalized_memo,
             )
 
@@ -135,8 +124,6 @@ class TeamService:
                     position=position,
                 )
 
-            # メンバー・Characterまで読み込んだTeamを
-            # Serviceの外へ返す。
             created_team = team_repository.get_by_id(
                 team.id
             )
@@ -167,6 +154,11 @@ class TeamService:
                     f"Discord ID {discord_id} was not found."
                 )
 
+            if not player.active:
+                raise PlayerInactiveError(
+                    f"Discord ID {discord_id} is inactive."
+                )
+
             return team_repository.list_active_by_player_id(
                 player.id
             )
@@ -174,15 +166,13 @@ class TeamService:
     def deactivate_team(
         self,
         discord_id: str,
-        team_name: str,
+        team_no: int,
     ) -> Team:
-        """編成を無効化する。"""
+        """指定した編成番号のTeamを無効化する。"""
 
-        normalized_team_name = team_name.strip()
-
-        if not normalized_team_name:
-            raise InvalidTeamNameError(
-                "Team name must not be empty."
+        if team_no <= 0:
+            raise InvalidTeamNumberError(
+                "Team number must be greater than zero."
             )
 
         with session_scope() as session:
@@ -198,21 +188,26 @@ class TeamService:
                     f"Discord ID {discord_id} was not found."
                 )
 
-            team = team_repository.get_by_player_and_name(
+            if not player.active:
+                raise PlayerInactiveError(
+                    f"Discord ID {discord_id} is inactive."
+                )
+
+            team = team_repository.get_by_player_and_number(
                 player_id=player.id,
-                team_name=normalized_team_name,
+                team_no=team_no,
             )
 
             if team is None:
                 raise TeamNotFoundError(
-                    f"Team '{normalized_team_name}' "
-                    "was not found."
+                    f"Team #{team_no} was not found."
                 )
 
             if not team.active:
                 raise TeamAlreadyInactiveError(
-                    f"Team '{normalized_team_name}' "
-                    "is already inactive."
+                    f"Team #{team_no} is already inactive."
                 )
 
-            return team_repository.deactivate(team)
+            return team_repository.deactivate(
+                team
+            )

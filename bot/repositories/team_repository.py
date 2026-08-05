@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from bot.models.character import Character
@@ -15,13 +15,15 @@ class TeamRepository:
     def create(
         self,
         player_id: int,
-        team_name: str,
+        team_no: int,
         memo: str | None = None,
+        team_name: str | None = None,
     ) -> Team:
         """Teamを新規作成する。"""
 
         team = Team(
             player_id=player_id,
+            team_no=team_no,
             team_name=team_name,
             memo=memo,
         )
@@ -43,23 +45,29 @@ class TeamRepository:
                 selectinload(Team.members)
                 .selectinload(TeamMember.character)
             )
-            .where(Team.id == team_id)
+            .where(
+                Team.id == team_id
+            )
         )
 
         return self._session.scalar(statement)
 
-    def get_by_player_and_name(
+    def get_by_player_and_number(
         self,
         player_id: int,
-        team_name: str,
+        team_no: int,
     ) -> Team | None:
-        """Player IDと編成名からTeamを取得する。"""
+        """Player IDと編成番号からTeamを取得する。"""
 
         statement = (
             select(Team)
+            .options(
+                selectinload(Team.members)
+                .selectinload(TeamMember.character)
+            )
             .where(
                 Team.player_id == player_id,
-                Team.team_name == team_name,
+                Team.team_no == team_no,
             )
         )
 
@@ -81,12 +89,35 @@ class TeamRepository:
                 Team.player_id == player_id,
                 Team.active.is_(True),
             )
-            .order_by(Team.team_name)
+            .order_by(
+                Team.team_no
+            )
         )
 
         return list(
             self._session.scalars(statement).all()
         )
+
+    def get_next_team_number(
+        self,
+        player_id: int,
+    ) -> int:
+        """Playerの次の編成番号を取得する。"""
+
+        statement = (
+            select(
+                func.max(Team.team_no)
+            )
+            .where(
+                Team.player_id == player_id
+            )
+        )
+
+        current_max = self._session.scalar(
+            statement
+        )
+
+        return (current_max or 0) + 1
 
     def add_member(
         self,
@@ -114,6 +145,7 @@ class TeamRepository:
         """Teamを無効化する。"""
 
         team.active = False
+
         self._session.flush()
 
         return team
@@ -125,6 +157,7 @@ class TeamRepository:
         """Teamを再有効化する。"""
 
         team.active = True
+
         self._session.flush()
 
         return team

@@ -4,6 +4,8 @@ from bot.exceptions import (
     BossNotFoundError,
     InvalidBossNumberError,
     InvalidDamageError,
+    InvalidTeamNumberError,
+    PlayerInactiveError,
     PlayerNotFoundError,
     TeamInactiveError,
     TeamNotFoundError,
@@ -28,29 +30,27 @@ class DamageService:
     def register_damage(
         self,
         discord_id: str,
-        team_name: str,
+        team_no: int,
         boss_no: int,
         damage: int,
         image_path: str | None = None,
         ocr_confidence: float | None = None,
-    ) -> tuple[DamageRecord, Boss]:
-        """
-        DamageRecordを保存し、Boss残HPを更新する。
+    ) -> tuple[DamageRecord, Boss, int]:
+        """DamageRecordを保存し、Boss残HPを更新する。"""
 
-        Returns:
-            DamageRecordと更新後Boss。
-        """
-
-        normalized_team_name = team_name.strip()
-
-        if not normalized_team_name:
-            raise TeamNotFoundError(
-                "Team name must not be empty."
+        if team_no <= 0:
+            raise InvalidTeamNumberError(
+                "Team number must be greater than zero."
             )
 
-        self._validate_boss_number(
-            boss_no
-        )
+        if not (
+            self.BOSS_MIN_NUMBER
+            <= boss_no
+            <= self.BOSS_MAX_NUMBER
+        ):
+            raise InvalidBossNumberError(
+                "Boss number must be between 1 and 5."
+            )
 
         if damage <= 0:
             raise InvalidDamageError(
@@ -80,19 +80,24 @@ class DamageService:
                     f"Discord ID {discord_id} was not found."
                 )
 
-            team = team_repository.get_by_player_and_name(
+            if not player.active:
+                raise PlayerInactiveError(
+                    f"Discord ID {discord_id} is inactive."
+                )
+
+            team = team_repository.get_by_player_and_number(
                 player_id=player.id,
-                team_name=normalized_team_name,
+                team_no=team_no,
             )
 
             if team is None:
                 raise TeamNotFoundError(
-                    f"Team '{normalized_team_name}' was not found."
+                    f"Team #{team_no} was not found."
                 )
 
             if not team.active:
                 raise TeamInactiveError(
-                    f"Team '{normalized_team_name}' is inactive."
+                    f"Team #{team_no} is inactive."
                 )
 
             raid = raid_repository.get_active()
@@ -112,6 +117,8 @@ class DamageService:
                     f"Boss {boss_no} was not found."
                 )
 
+            previous_hp = boss.current_hp
+
             record = damage_repository.create(
                 team_id=team.id,
                 boss_id=boss.id,
@@ -120,29 +127,12 @@ class DamageService:
                 ocr_confidence=ocr_confidence,
             )
 
-            new_hp = max(
-                boss.current_hp - damage,
-                0,
-            )
-
             boss_repository.set_current_hp(
                 boss=boss,
-                current_hp=new_hp,
+                current_hp=max(
+                    previous_hp - damage,
+                    0,
+                ),
             )
 
-            return record, boss
-
-    def _validate_boss_number(
-        self,
-        boss_no: int,
-    ) -> None:
-        if not (
-            self.BOSS_MIN_NUMBER
-            <= boss_no
-            <= self.BOSS_MAX_NUMBER
-        ):
-            raise InvalidBossNumberError(
-                "Boss number must be between "
-                f"{self.BOSS_MIN_NUMBER} and "
-                f"{self.BOSS_MAX_NUMBER}."
-            )
+            return record, boss, previous_hp

@@ -77,4 +77,5 @@ class InvalidDamageError(NikkeBotError):
 class TeamInactiveError(NikkeBotError):
     """使用しようとしたTeamが無効な場合のエラー。"""
 
-    
+class InvalidTeamNumberError(NikkeBotError):
+    """編成番号が不正な場合のエラー。"""

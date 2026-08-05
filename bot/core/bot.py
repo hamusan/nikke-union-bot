@@ -13,6 +13,7 @@ EXTENSIONS = (
     "bot.cogs.player",
     "bot.cogs.team",
     "bot.cogs.raid",
+    "bot.cogs.damage",
 )
 
 

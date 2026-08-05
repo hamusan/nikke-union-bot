@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean,
     ForeignKey,
+    Integer,
     String,
     UniqueConstraint,
 )
@@ -21,8 +22,8 @@ class Team(Base):
     __table_args__ = (
         UniqueConstraint(
             "player_id",
-            "team_name",
-            name="uq_team_player_name",
+            "team_no",
+            name="uq_team_player_number",
         ),
     )
 
@@ -35,8 +36,13 @@ class Team(Base):
         index=True,
     )
 
-    team_name: Mapped[str] = mapped_column(
+    team_no: Mapped[int] = mapped_column(
+        Integer,
+    )
+
+    team_name: Mapped[str | None] = mapped_column(
         String(100),
+        nullable=True,
     )
 
     memo: Mapped[str | None] = mapped_column(

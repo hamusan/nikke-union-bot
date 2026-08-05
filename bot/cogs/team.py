@@ -32,7 +32,6 @@ class TeamCog(commands.Cog):
         description="5人のNIKKE編成を登録します。",
     )
     @app_commands.describe(
-        team_name="編成名",
         character1="1番目のNIKKE",
         character2="2番目のNIKKE",
         character3="3番目のNIKKE",
@@ -43,7 +42,6 @@ class TeamCog(commands.Cog):
     async def team_add(
         self,
         interaction: discord.Interaction,
-        team_name: str,
         character1: str,
         character2: str,
         character3: str,
@@ -64,7 +62,7 @@ class TeamCog(commands.Cog):
         try:
             team = self.team_service.create_team(
                 discord_id=discord_id,
-                team_name=team_name,
+                discord_name=interaction.user.display_name,
                 character_names=character_names,
                 memo=memo,
             )
@@ -146,7 +144,7 @@ class TeamCog(commands.Cog):
         )
 
         message = (
-            f"編成 **{team.team_name}** を登録しました。\n\n"
+            f"**編成 #{team.team_no}** を登録しました。\n\n"
             + "\n".join(member_lines)
         )
 
@@ -211,7 +209,7 @@ class TeamCog(commands.Cog):
             ]
 
             section = (
-                f"**{team.team_name}**\n"
+                f"**編成 #{team.team_no}**\n"
                 + "\n".join(member_lines)
             )
 
@@ -236,19 +234,19 @@ class TeamCog(commands.Cog):
         description="自分の編成を無効化します。",
     )
     @app_commands.describe(
-        team_name="無効化する編成名",
+        team_no="無効化する編成番号",
     )
     async def team_deactivate(
         self,
         interaction: discord.Interaction,
-        team_name: str,
+        team_no: int
     ) -> None:
         discord_id = str(interaction.user.id)
 
         try:
             team = self.team_service.deactivate_team(
                 discord_id=discord_id,
-                team_name=team_name,
+                team_no=team_no,
             )
 
         except PlayerNotFoundError:
@@ -299,7 +297,7 @@ class TeamCog(commands.Cog):
         )
 
         await interaction.response.send_message(
-            f"編成 **{team.team_name}** を無効化しました。",
+            f"**編成 #{team.team_no}** を無効化しました。",
             ephemeral=True,
         )
 

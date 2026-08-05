@@ -7,7 +7,10 @@ from bot.models.damage import DamageRecord
 class DamageRepository:
     """DamageRecordのDB操作を担当するRepository。"""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+    ) -> None:
         self._session = session
 
     def create(
@@ -18,8 +21,6 @@ class DamageRepository:
         image_path: str | None = None,
         ocr_confidence: float | None = None,
     ) -> DamageRecord:
-        """DamageRecordを新規作成する。"""
-
         record = DamageRecord(
             team_id=team_id,
             boss_id=boss_id,
@@ -33,23 +34,10 @@ class DamageRepository:
 
         return record
 
-    def get_by_id(
-        self,
-        damage_id: int,
-    ) -> DamageRecord | None:
-        """DamageRecord IDから取得する。"""
-
-        return self._session.get(
-            DamageRecord,
-            damage_id,
-        )
-
     def list_by_team_id(
         self,
         team_id: int,
     ) -> list[DamageRecord]:
-        """TeamのDamage履歴を取得する。"""
-
         statement = (
             select(DamageRecord)
             .where(
@@ -68,8 +56,6 @@ class DamageRepository:
         self,
         boss_id: int,
     ) -> list[DamageRecord]:
-        """BossのDamage履歴を取得する。"""
-
         statement = (
             select(DamageRecord)
             .where(
