@@ -1,7 +1,9 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from bot.models import Base
 
@@ -29,3 +31,21 @@ def initialize_database() -> None:
     """データベースとテーブルを初期化する。"""
 
     Base.metadata.create_all(bind=engine)
+
+
+@contextmanager
+def session_scope() -> Iterator[Session]:
+    """DBセッションを安全に管理する。"""
+
+    session = SessionLocal()
+
+    try:
+        yield session
+        session.commit()
+
+    except Exception:
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
