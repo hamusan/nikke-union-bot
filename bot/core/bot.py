@@ -14,6 +14,7 @@ EXTENSIONS = (
     "bot.cogs.team",
     "bot.cogs.raid",
     "bot.cogs.damage",
+    "bot.cogs.screenshot",
 )
 
 
@@ -22,6 +23,7 @@ class NikkeBot(commands.Bot):
 
     def __init__(self, config: Config) -> None:
         intents = discord.Intents.default()
+        intents.message_content = True
 
         super().__init__(
             command_prefix="!",

@@ -10,6 +10,7 @@ class Config:
 
     discord_token: str
     guild_id: int
+    screenshot_channel_id: int
 
 
 def load_config() -> Config:
@@ -17,8 +18,20 @@ def load_config() -> Config:
 
     load_dotenv()
 
-    discord_token = os.getenv("DISCORD_TOKEN", "").strip()
-    guild_id_raw = os.getenv("GUILD_ID", "").strip()
+    discord_token = os.getenv(
+        "DISCORD_TOKEN",
+        "",
+    ).strip()
+
+    guild_id_raw = os.getenv(
+        "GUILD_ID",
+        "",
+    ).strip()
+
+    screenshot_channel_id_raw = os.getenv(
+        "SCREENSHOT_CHANNEL_ID",
+        "",
+    ).strip()
 
     if not discord_token:
         raise RuntimeError(
@@ -30,14 +43,33 @@ def load_config() -> Config:
             "GUILD_ID が .env に設定されていません。"
         )
 
+    if not screenshot_channel_id_raw:
+        raise RuntimeError(
+            "SCREENSHOT_CHANNEL_ID が "
+            ".env に設定されていません。"
+        )
+
     try:
-        guild_id = int(guild_id_raw)
+        guild_id = int(
+            guild_id_raw
+        )
     except ValueError as error:
         raise RuntimeError(
             "GUILD_ID は数字で指定してください。"
         ) from error
 
+    try:
+        screenshot_channel_id = int(
+            screenshot_channel_id_raw
+        )
+    except ValueError as error:
+        raise RuntimeError(
+            "SCREENSHOT_CHANNEL_ID は"
+            "数字で指定してください。"
+        ) from error
+
     return Config(
         discord_token=discord_token,
         guild_id=guild_id,
+        screenshot_channel_id=screenshot_channel_id,
     )
