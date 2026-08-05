@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bot.models.base import Base
 
 
 class Team(Base):
+    """Playerが所有する編成。"""
+
     __tablename__ = "teams"
 
     __table_args__ = (
@@ -19,7 +26,9 @@ class Team(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
 
     player_id: Mapped[int] = mapped_column(
         ForeignKey("players.id"),
@@ -35,12 +44,23 @@ class Team(Base):
         nullable=True,
     )
 
+    active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(timezone.utc),
     )
 
     player: Mapped["Player"] = relationship(
         back_populates="teams",
+    )
+
+    members: Mapped[list["TeamMember"]] = relationship(
+        back_populates="team",
+        cascade="all, delete-orphan",
+        order_by="TeamMember.position",
     )
 
     damage_records: Mapped[list["DamageRecord"]] = relationship(
