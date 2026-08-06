@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from io import BytesIO
 
 import discord
 from discord import app_commands
@@ -15,10 +16,16 @@ from bot.services import (
     UnionAssignmentPlan,
     UnionAssignmentService,
 )
+from bot.services.optimization.plan_renderer import (
+    OptimizationPlanImageRenderer,
+)
 from bot.services.optimization.session_service import (
     OptimizationSessionService,
     OptimizationSessionState,
 )
+
+
+IMAGE_FILENAME = "optimization_plan.png"
 
 
 @dataclass
@@ -49,7 +56,6 @@ class OptimizationStopView(
         channel_id: int,
         owner_id: int,
     ) -> None:
-        # Bot再起動後も使用するPersistent View。
         super().__init__(
             timeout=None
         )
@@ -64,8 +70,7 @@ class OptimizationStopView(
     ) -> bool:
         """
         /optimizeを開始した本人、
-        またはサーバー管理権限を持つ人だけ
-        更新を終了できる。
+        またはサーバー管理者だけ終了できる。
         """
 
         if (
@@ -100,9 +105,7 @@ class OptimizationStopView(
         label="更新終了",
         style=discord.ButtonStyle.danger,
         emoji="⏹️",
-        custom_id=(
-            "nikke_union_optimization_stop"
-        ),
+        custom_id="nikke_union_optimization_stop",
     )
     async def stop_button(
         self,
@@ -175,9 +178,10 @@ class OptimizationCog(
             OptimizationSessionService()
         )
 
-        # channel_id
-        # →
-        # OptimizationUpdateSession
+        self.image_renderer = (
+            OptimizationPlanImageRenderer()
+        )
+
         self._sessions: dict[
             int,
             OptimizationUpdateSession,
@@ -195,11 +199,7 @@ class OptimizationCog(
     async def cog_load(
         self,
     ) -> None:
-        """
-        Extensionロード後、
-        BotがReadyになったら
-        DB Sessionを復元する。
-        """
+        """Bot Ready後に永続Sessionを復元する。"""
 
         self._restore_task = (
             asyncio.create_task(
@@ -237,7 +237,7 @@ class OptimizationCog(
     ) -> None:
         """
         コマンドを実行したチャンネルで
-        最適化プランの自動更新を開始する。
+        最適化画像の自動更新を開始する。
         """
 
         channel_id = interaction.channel_id
@@ -249,7 +249,10 @@ class OptimizationCog(
             )
             return
 
-        # 同一チャンネルでは1Sessionだけ。
+        # --------------------------------
+        # メモリ上のSession確認
+        # --------------------------------
+
         if self.is_running(
             channel_id
         ):
@@ -265,13 +268,53 @@ class OptimizationCog(
             )
             return
 
+        # --------------------------------
+        # DB上のSession確認
+        # --------------------------------
+        #
+        # Bot起動直後でrestore処理中の場合に
+        # 二重Sessionを作らないため。
+        # --------------------------------
+
+        try:
+            persistent_state = await asyncio.to_thread(
+                self.session_service.get_by_channel,
+                channel_id,
+            )
+
+        except Exception:
+            logger.exception(
+                (
+                    "Failed to check persistent "
+                    "optimization session: "
+                    "channel_id={}"
+                ),
+                channel_id,
+            )
+
+            persistent_state = None
+
+        if (
+            persistent_state is not None
+            and persistent_state.active
+        ):
+            await interaction.response.send_message(
+                (
+                    "このチャンネルには現在、"
+                    "復元対象の最適化Sessionがあります。\n"
+                    "少し待ってから再度確認してください。"
+                ),
+                ephemeral=True,
+            )
+            return
+
         await interaction.response.defer(
             thinking=True,
             ephemeral=True,
         )
 
         # --------------------------------
-        # Active Raid確認
+        # Active Raid
         # --------------------------------
 
         active_raid = await asyncio.to_thread(
@@ -280,39 +323,38 @@ class OptimizationCog(
 
         if active_raid is None:
             await interaction.edit_original_response(
-                content=(
-                    "Active Raidがありません。"
-                )
+                content="Active Raidがありません。"
             )
             return
 
         raid_id, raid_name = active_raid
 
         # --------------------------------
-        # 初回プラン生成
+        # 初回プラン + PNG生成
         # --------------------------------
 
         try:
-            content, embeds = (
-                await self._build_update_message(
-                    raid_id=raid_id,
-                    interval_minutes=(
-                        int(interval_minutes)
-                    ),
-                )
+            (
+                content,
+                image_bytes,
+            ) = await self._build_plan_payload(
+                raid_id=raid_id,
+                interval_minutes=(
+                    int(interval_minutes)
+                ),
             )
 
         except Exception:
             logger.exception(
                 (
                     "Failed to build initial "
-                    "optimization plan"
+                    "optimization image"
                 )
             )
 
             await interaction.edit_original_response(
                 content=(
-                    "最適化プランの生成中に"
+                    "最適化プラン画像の生成中に"
                     "エラーが発生しました。"
                 )
             )
@@ -335,13 +377,15 @@ class OptimizationCog(
         )
 
         # --------------------------------
-        # 通常のBot Messageとして投稿
+        # 通常Messageとして投稿
         # --------------------------------
 
         try:
             message = await channel.send(
                 content=content,
-                embeds=embeds,
+                file=self._create_image_file(
+                    image_bytes
+                ),
                 view=view,
             )
 
@@ -358,21 +402,21 @@ class OptimizationCog(
             logger.exception(
                 (
                     "Failed to send optimization "
-                    "message: channel_id={}"
+                    "image: channel_id={}"
                 ),
                 channel_id,
             )
 
             await interaction.edit_original_response(
                 content=(
-                    "最適化プランの投稿中に"
+                    "最適化プラン画像の投稿中に"
                     "エラーが発生しました。"
                 )
             )
             return
 
         # --------------------------------
-        # SessionをDBへ保存
+        # DBへSession保存
         # --------------------------------
 
         try:
@@ -401,7 +445,7 @@ class OptimizationCog(
                         "失敗したため、自動更新を"
                         "開始できませんでした。"
                     ),
-                    embeds=[],
+                    attachments=[],
                     view=None,
                 )
             except discord.HTTPException:
@@ -416,7 +460,7 @@ class OptimizationCog(
             return
 
         # --------------------------------
-        # 自動更新Task開始
+        # 更新Task開始
         # --------------------------------
 
         task = asyncio.create_task(
@@ -451,7 +495,7 @@ class OptimizationCog(
 
         await interaction.edit_original_response(
             content=(
-                "✅ 最適化プランの"
+                "✅ 最適化プラン画像の"
                 "自動更新を開始しました。\n"
                 f"Raid: **{raid_name}**\n"
                 f"更新間隔: "
@@ -461,7 +505,7 @@ class OptimizationCog(
 
         logger.info(
             (
-                "Optimization auto update started: "
+                "Optimization image update started: "
                 "channel_id={}, "
                 "raid_id={}, "
                 "owner_id={}, "
@@ -474,14 +518,14 @@ class OptimizationCog(
         )
 
     # ========================================================
-    # Session state
+    # Session
     # ========================================================
 
     def is_running(
         self,
         channel_id: int,
     ) -> bool:
-        """指定チャンネルで更新中か確認する。"""
+        """指定チャンネルが更新中か確認する。"""
 
         session = self._sessions.get(
             channel_id
@@ -497,10 +541,9 @@ class OptimizationCog(
         channel_id: int,
     ) -> bool:
         """
-        指定チャンネルの自動更新を終了する。
+        自動更新を終了する。
 
-        メモリTaskだけでなく、
-        DBのactiveもFalseにする。
+        Task停止 + DB active=False。
         """
 
         memory_session = self._sessions.pop(
@@ -513,6 +556,7 @@ class OptimizationCog(
                 self.session_service.get_by_channel,
                 channel_id,
             )
+
         except Exception:
             logger.exception(
                 (
@@ -579,10 +623,7 @@ class OptimizationCog(
         view: OptimizationStopView,
         interval_minutes: int,
     ) -> None:
-        """
-        更新終了ボタンが押されるまで
-        最適化プランを再計算し続ける。
-        """
+        """最適化画像を定期的に再生成する。"""
 
         interval_seconds = (
             interval_minutes
@@ -596,24 +637,26 @@ class OptimizationCog(
                 )
 
                 try:
-                    content, embeds = (
-                        await self._build_update_message(
-                            raid_id=raid_id,
-                            interval_minutes=(
-                                interval_minutes
-                            ),
-                        )
+                    (
+                        content,
+                        image_bytes,
+                    ) = await self._build_plan_payload(
+                        raid_id=raid_id,
+                        interval_minutes=(
+                            interval_minutes
+                        ),
                     )
 
-                    await message.edit(
+                    await self._edit_plan_message(
+                        message=message,
                         content=content,
-                        embeds=embeds,
+                        image_bytes=image_bytes,
                         view=view,
                     )
 
                     logger.info(
                         (
-                            "Optimization plan updated: "
+                            "Optimization image updated: "
                             "channel_id={}, raid_id={}"
                         ),
                         channel_id,
@@ -624,8 +667,7 @@ class OptimizationCog(
                     logger.warning(
                         (
                             "Optimization message "
-                            "was deleted: "
-                            "channel_id={}"
+                            "was deleted: channel_id={}"
                         ),
                         channel_id,
                     )
@@ -656,11 +698,12 @@ class OptimizationCog(
                     return
 
                 except Exception:
-                    # 1回の計算失敗だけでは
-                    # 自動更新自体を終了しない。
+                    # 一時的な最適化・画像生成失敗だけでは
+                    # Session自体は終了しない。
                     logger.exception(
                         (
-                            "Optimization update failed: "
+                            "Optimization image "
+                            "update failed: "
                             "channel_id={}"
                         ),
                         channel_id,
@@ -695,7 +738,7 @@ class OptimizationCog(
     async def _restore_sessions_after_ready(
         self,
     ) -> None:
-        """Bot再起動後にactive Sessionを復元する。"""
+        """Bot再起動後にSessionを復元する。"""
 
         await self.bot.wait_until_ready()
 
@@ -742,7 +785,7 @@ class OptimizationCog(
         self,
         state: OptimizationSessionState,
     ) -> None:
-        """保存されたSessionを1件復元する。"""
+        """Sessionを1件復元する。"""
 
         if state.message_id is None:
             logger.warning(
@@ -759,7 +802,7 @@ class OptimizationCog(
             return
 
         # --------------------------------
-        # Channel取得
+        # Channel
         # --------------------------------
 
         channel = self.bot.get_channel(
@@ -772,15 +815,10 @@ class OptimizationCog(
                     state.channel_id
                 )
 
-            except discord.NotFound:
-                await (
-                    self._deactivate_persistent_session(
-                        state.channel_id
-                    )
-                )
-                return
-
-            except discord.Forbidden:
+            except (
+                discord.NotFound,
+                discord.Forbidden,
+            ):
                 await (
                     self._deactivate_persistent_session(
                         state.channel_id
@@ -802,21 +840,13 @@ class OptimizationCog(
             channel,
             "fetch_message",
         ):
-            logger.warning(
-                (
-                    "Optimization channel cannot "
-                    "fetch messages: channel_id={}"
-                ),
-                state.channel_id,
-            )
-
             await self._deactivate_persistent_session(
                 state.channel_id
             )
             return
 
         # --------------------------------
-        # Message取得
+        # Message
         # --------------------------------
 
         try:
@@ -827,9 +857,9 @@ class OptimizationCog(
         except discord.NotFound:
             logger.warning(
                 (
-                    "Persistent optimization message "
-                    "not found: channel_id={}, "
-                    "message_id={}"
+                    "Persistent optimization "
+                    "message not found: "
+                    "channel_id={}, message_id={}"
                 ),
                 state.channel_id,
                 state.message_id,
@@ -841,15 +871,6 @@ class OptimizationCog(
             return
 
         except discord.Forbidden:
-            logger.warning(
-                (
-                    "Cannot fetch persistent "
-                    "optimization message: "
-                    "channel_id={}"
-                ),
-                state.channel_id,
-            )
-
             await self._deactivate_persistent_session(
                 state.channel_id
             )
@@ -868,7 +889,7 @@ class OptimizationCog(
             return
 
         # --------------------------------
-        # Persistent View登録
+        # Persistent View
         # --------------------------------
 
         view = OptimizationStopView(
@@ -885,22 +906,24 @@ class OptimizationCog(
         )
 
         # --------------------------------
-        # 再起動直後に一度更新
+        # 再起動直後に画像更新
         # --------------------------------
 
         try:
-            content, embeds = (
-                await self._build_update_message(
-                    raid_id=state.raid_id,
-                    interval_minutes=(
-                        state.interval_minutes
-                    ),
-                )
+            (
+                content,
+                image_bytes,
+            ) = await self._build_plan_payload(
+                raid_id=state.raid_id,
+                interval_minutes=(
+                    state.interval_minutes
+                ),
             )
 
-            await message.edit(
+            await self._edit_plan_message(
+                message=message,
                 content=content,
-                embeds=embeds,
+                image_bytes=image_bytes,
                 view=view,
             )
 
@@ -917,19 +940,19 @@ class OptimizationCog(
             return
 
         except Exception:
-            # 計算失敗していても、
-            # 次回更新で復旧する可能性があるので
-            # Session自体は復元する。
+            # 次回更新で復旧する可能性があるため
+            # Session自体は残す。
             logger.exception(
                 (
                     "Initial restored optimization "
-                    "update failed: channel_id={}"
+                    "image update failed: "
+                    "channel_id={}"
                 ),
                 state.channel_id,
             )
 
         # --------------------------------
-        # 更新Task再作成
+        # Task復元
         # --------------------------------
 
         task = asyncio.create_task(
@@ -966,7 +989,7 @@ class OptimizationCog(
 
         logger.info(
             (
-                "Optimization session restored: "
+                "Optimization image session restored: "
                 "channel_id={}, "
                 "message_id={}, "
                 "raid_id={}, "
@@ -982,7 +1005,7 @@ class OptimizationCog(
         self,
         channel_id: int,
     ) -> None:
-        """DB Sessionをactive=Falseにする。"""
+        """DB上のSessionをactive=Falseにする。"""
 
         try:
             await asyncio.to_thread(
@@ -1001,22 +1024,55 @@ class OptimizationCog(
             )
 
     # ========================================================
-    # Plan generation
+    # Plan + image
     # ========================================================
 
-    async def _build_update_message(
+    async def _build_plan_payload(
         self,
         raid_id: int,
         interval_minutes: int,
     ) -> tuple[
         str,
-        list[discord.Embed],
+        bytes,
     ]:
-        """指定Raidの最新最適化プランを生成する。"""
+        """
+        最適化を実行して、
+        Discord表示用テキストとPNGを生成する。
+        """
 
         raid = await asyncio.to_thread(
             self._get_raid_by_id,
             raid_id,
+        )
+
+        if raid is None:
+            raise ValueError(
+                (
+                    "対象Raidが存在しません: "
+                    f"raid_id={raid_id}"
+                )
+            )
+
+        _, raid_name = raid
+
+        # --------------------------------
+        # OR-Tools
+        # --------------------------------
+
+        plan = await asyncio.to_thread(
+            self.assignment_service.build_for_raid,
+            raid_id,
+            3,
+        )
+
+        # --------------------------------
+        # Pillow Renderer
+        # --------------------------------
+
+        image_bytes = await asyncio.to_thread(
+            self.image_renderer.render,
+            plan,
+            raid_name,
         )
 
         now = discord.utils.utcnow()
@@ -1025,29 +1081,7 @@ class OptimizationCog(
             now.timestamp()
         )
 
-        if raid is None:
-            content = (
-                "## 最適化プラン\n\n"
-                "⚠️ 対象Raidが見つかりません。\n\n"
-                f"Raid ID: **{raid_id}**\n"
-                f"更新間隔: **{interval_minutes}分**\n"
-                f"最終確認: <t:{timestamp}:R>"
-            )
-
-            return (
-                content,
-                [],
-            )
-
-        _, raid_name = raid
-
-        plan = await asyncio.to_thread(
-            self.assignment_service.build_for_raid,
-            raid_id,
-            3,
-        )
-
-        content = self._build_header(
+        content = self._build_message_content(
             raid_name=raid_name,
             plan=plan,
             interval_minutes=(
@@ -1056,14 +1090,76 @@ class OptimizationCog(
             timestamp=timestamp,
         )
 
-        embeds = self._build_embeds(
-            plan
-        )
-
         return (
             content,
-            embeds,
+            image_bytes,
         )
+
+    def _build_message_content(
+        self,
+        raid_name: str,
+        plan: UnionAssignmentPlan,
+        interval_minutes: int,
+        timestamp: int,
+    ) -> str:
+        """
+        画像の上に表示する簡易ステータス。
+        詳細はPNG側へまとめる。
+        """
+
+        return (
+            "## ユニオンレイド 最適化プラン\n"
+            f"Raid: **{raid_name}**\n"
+            f"割り当て: **{plan.attack_count}凸**\n"
+            f"更新間隔: **{interval_minutes}分**\n"
+            f"最終更新: <t:{timestamp}:R>\n\n"
+            "※ 詳細な編成・Damageは"
+            "下の画像を確認してください。"
+        )
+
+    def _create_image_file(
+        self,
+        image_bytes: bytes,
+    ) -> discord.File:
+        """PNG bytesからDiscord Fileを作る。"""
+
+        return discord.File(
+            fp=BytesIO(
+                image_bytes
+            ),
+            filename=IMAGE_FILENAME,
+            description=(
+                "ユニオンレイド最適化プラン"
+            ),
+        )
+
+    async def _edit_plan_message(
+        self,
+        message: discord.Message,
+        content: str,
+        image_bytes: bytes,
+        view: OptimizationStopView,
+    ) -> None:
+        """
+        同じDiscord Messageの
+        添付画像を新しいPNGへ差し替える。
+        """
+
+        image_file = self._create_image_file(
+            image_bytes
+        )
+
+        await message.edit(
+            content=content,
+            attachments=[
+                image_file
+            ],
+            view=view,
+        )
+
+    # ========================================================
+    # Raid
+    # ========================================================
 
     def _get_active_raid(
         self,
@@ -1112,189 +1208,6 @@ class OptimizationCog(
             )
 
     # ========================================================
-    # Discord rendering
-    # ========================================================
-
-    def _build_header(
-        self,
-        raid_name: str,
-        plan: UnionAssignmentPlan,
-        interval_minutes: int,
-        timestamp: int,
-    ) -> str:
-        """最適化メッセージ上部を生成する。"""
-
-        return (
-            "## 最適化プラン\n"
-            f"Raid: **{raid_name}**\n"
-            f"割り当て数: **{plan.attack_count}凸**\n"
-            "合計Damage: "
-            f"**{plan.total_nominal_damage:,}**\n"
-            "有効Damage: "
-            f"**{plan.total_effective_damage:,}**\n\n"
-            f"更新間隔: **{interval_minutes}分**\n"
-            f"最終更新: <t:{timestamp}:R>\n\n"
-            "※ 攻撃順序は考慮していません。\n"
-            "※ DamageRecordが更新されると、"
-            "次回更新時に再最適化されます。"
-        )
-
-    def _build_embeds(
-        self,
-        plan: UnionAssignmentPlan,
-    ) -> list[discord.Embed]:
-        """Bossごとの攻撃割り当てEmbedを作る。"""
-
-        if not plan.boss_summaries:
-            embed = discord.Embed(
-                title="割り当てなし",
-                description=(
-                    "現在、最適化に使用できる"
-                    "DamageRecordがありません。"
-                ),
-            )
-
-            return [
-                embed
-            ]
-
-        embeds: list[
-            discord.Embed
-        ] = []
-
-        for boss in plan.boss_summaries:
-            lines: list[str] = []
-
-            for assignment in boss.assignments:
-                lines.append(
-                    (
-                        f"**{assignment.player_name}**"
-                        f" / Team #{assignment.team_no}"
-                        f" / **{assignment.damage:,}**"
-                    )
-                )
-
-                if assignment.character_names:
-                    characters = " / ".join(
-                        assignment.character_names
-                    )
-
-                    lines.append(
-                        f"`{characters}`"
-                    )
-
-                lines.append("")
-
-            chunks = self._split_lines(
-                lines=lines,
-                max_length=3800,
-            )
-
-            for chunk_index, chunk in enumerate(
-                chunks,
-                start=1,
-            ):
-                if len(chunks) == 1:
-                    title = (
-                        f"{boss.boss_name} "
-                        f"| Phase {boss.phase_no}"
-                    )
-                else:
-                    title = (
-                        f"{boss.boss_name} "
-                        f"| Phase {boss.phase_no} "
-                        f"({chunk_index}/{len(chunks)})"
-                    )
-
-                embed = discord.Embed(
-                    title=title,
-                    description=chunk,
-                )
-
-                embed.add_field(
-                    name="Boss HP",
-                    value=f"{boss.max_hp:,}",
-                    inline=True,
-                )
-
-                embed.add_field(
-                    name="割り当てDamage",
-                    value=(
-                        f"{boss.assigned_damage:,}"
-                    ),
-                    inline=True,
-                )
-
-                embed.add_field(
-                    name="Overkill",
-                    value=(
-                        f"{boss.overkill_damage:,}"
-                    ),
-                    inline=True,
-                )
-
-                embeds.append(
-                    embed
-                )
-
-        # Discordは1メッセージ最大10 Embed。
-        return embeds[:10]
-
-    def _split_lines(
-        self,
-        lines: list[str],
-        max_length: int,
-    ) -> list[str]:
-        """Discord Embed制限に合わせて分割する。"""
-
-        chunks: list[str] = []
-
-        current_lines: list[str] = []
-        current_length = 0
-
-        for line in lines:
-            added_length = (
-                len(line) + 1
-            )
-
-            if (
-                current_lines
-                and current_length
-                + added_length
-                > max_length
-            ):
-                chunks.append(
-                    "\n".join(
-                        current_lines
-                    )
-                )
-
-                current_lines = []
-                current_length = 0
-
-            current_lines.append(
-                line
-            )
-
-            current_length += (
-                added_length
-            )
-
-        if current_lines:
-            chunks.append(
-                "\n".join(
-                    current_lines
-                )
-            )
-
-        if not chunks:
-            chunks.append(
-                "割り当てなし"
-            )
-
-        return chunks
-
-    # ========================================================
     # Cog unload
     # ========================================================
 
@@ -1302,10 +1215,10 @@ class OptimizationCog(
         self,
     ) -> None:
         """
-        Bot終了時にTaskだけcancelする。
+        Bot終了時はTaskだけ停止する。
 
-        DBのactiveはFalseにしない。
-        次回起動時に復元するため。
+        DB active=Trueは残し、
+        次回起動時に復元する。
         """
 
         if (
