@@ -211,3 +211,90 @@ class TeamService:
             return team_repository.deactivate(
                 team
             )
+        
+    def find_or_create_team_from_characters(
+        self,
+        discord_id: str,
+        discord_name: str,
+        character_names: list[str],
+    ) -> tuple[Team, bool]:
+        """
+        5キャラの組み合わせから既存編成を探す。
+
+        キャラの並び順は考慮しない。
+
+        一致する編成がなければ新規作成する。
+
+        Returns:
+            Team:
+                一致または新規作成したTeam。
+
+            bool:
+                新規作成した場合はTrue。
+        """
+
+        if len(character_names) != self.TEAM_MEMBER_COUNT:
+            raise InvalidTeamMemberCountError(
+                f"A team must contain exactly "
+                f"{self.TEAM_MEMBER_COUNT} characters."
+            )
+
+        normalized_names = [
+            name.strip()
+            for name in character_names
+        ]
+
+        if any(
+            not name
+            for name in normalized_names
+        ):
+            raise InvalidCharacterNameError(
+                "Character name must not be empty."
+            )
+
+        normalized_keys = [
+            name.casefold()
+            for name in normalized_names
+        ]
+
+        if len(set(normalized_keys)) != self.TEAM_MEMBER_COUNT:
+            raise DuplicateCharacterError(
+                "The same character cannot be used twice."
+            )
+
+        requested_names = set(
+            normalized_keys
+        )
+
+        try:
+            teams = self.list_active_teams(
+                discord_id
+            )
+
+        except PlayerNotFoundError:
+            team = self.create_team(
+                discord_id=discord_id,
+                discord_name=discord_name,
+                character_names=normalized_names,
+            )
+
+            return team, True
+
+        for team in teams:
+            existing_names = {
+                member.character.name
+                .strip()
+                .casefold()
+                for member in team.members
+            }
+
+            if existing_names == requested_names:
+                return team, False
+
+        team = self.create_team(
+            discord_id=discord_id,
+            discord_name=discord_name,
+            character_names=normalized_names,
+        )
+
+        return team, True
