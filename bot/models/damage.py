@@ -1,17 +1,30 @@
-from __future__ import annotations
+from datetime import datetime
 
-from datetime import datetime, timezone
-
-from sqlalchemy import BigInteger, Float, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    func,
+)
+from sqlalchemy.orm import (
+    Mapped,
+    mapped_column,
+    relationship,
+)
 
 from bot.models.base import Base
 
 
 class DamageRecord(Base):
+    """ユニオンレイドのダメージ実績。"""
+
     __tablename__ = "damage_records"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
 
     team_id: Mapped[int] = mapped_column(
         ForeignKey("teams.id"),
@@ -23,13 +36,32 @@ class DamageRecord(Base):
         index=True,
     )
 
+    # 既存DBとの互換性のため、
+    # 現段階ではnullable=True。
+    #
+    # 新しくOCRから登録するDamageRecordでは
+    # 必ずBossPhaseを設定する。
+    boss_phase_id: Mapped[int | None] = mapped_column(
+        ForeignKey("boss_phases.id"),
+        nullable=True,
+        index=True,
+    )
+
     damage: Mapped[int] = mapped_column(
-        BigInteger,
+        BigInteger
     )
 
     image_path: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
+    )
+
+    # 同じ結果スクショの二重登録防止。
+    image_sha256: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+        index=True,
     )
 
     ocr_confidence: Mapped[float | None] = mapped_column(
@@ -38,13 +70,16 @@ class DamageRecord(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc),
+        DateTime,
+        server_default=func.now(),
     )
 
     team: Mapped["Team"] = relationship(
-        back_populates="damage_records",
+        back_populates="damage_records"
     )
 
     boss: Mapped["Boss"] = relationship(
-        back_populates="damage_records",
+        back_populates="damage_records"
     )
+
+    boss_phase: Mapped["BossPhase | None"] = relationship()

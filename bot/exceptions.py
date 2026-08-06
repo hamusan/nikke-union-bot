@@ -89,3 +89,6 @@ class BossPhaseAlreadyExistsError(NikkeBotError):
 
 class InvalidPhaseNumberError(NikkeBotError):
     """Phase番号が不正な場合のエラー。"""
+
+class DuplicateDamageImageError(Exception):
+    """同じ結果スクリーンショットが既に登録されている。"""
