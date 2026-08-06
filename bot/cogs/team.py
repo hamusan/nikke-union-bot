@@ -67,16 +67,6 @@ class TeamCog(commands.Cog):
                 memo=memo,
             )
 
-        except PlayerNotFoundError:
-            await interaction.response.send_message(
-                (
-                    "プレイヤー登録が見つかりません。\n"
-                    "先に `/player-register` を実行してください。"
-                ),
-                ephemeral=True,
-            )
-            return
-
         except PlayerInactiveError:
             await interaction.response.send_message(
                 "現在このプレイヤーは無効化されています。",

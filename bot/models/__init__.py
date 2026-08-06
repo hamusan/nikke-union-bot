@@ -7,7 +7,9 @@ from bot.models.player import Player
 from bot.models.raid import Raid
 from bot.models.team import Team
 from bot.models.team_member import TeamMember
-
+from bot.models.optimization_session import (
+    OptimizationSession,
+)
 
 __all__ = [
     "Base",
@@ -19,4 +21,5 @@ __all__ = [
     "Raid",
     "Team",
     "TeamMember",
+    "OptimizationSession",
 ]

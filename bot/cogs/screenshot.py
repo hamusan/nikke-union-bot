@@ -1,3 +1,10 @@
+import hashlib
+
+from bot.cogs.damage_confirmation import (
+    DamageConfirmationView,
+    PendingDamageRegistration,
+)
+
 import asyncio
 from pathlib import Path
 
@@ -432,19 +439,61 @@ class ScreenshotCog(commands.Cog):
             f"**{battle_result.boss_max_hp:,}**\n"
             f"Damage: "
             f"**{battle_result.total_damage:,}**\n\n"
-            "※ 現在は確認段階のため、"
-            "DamageRecordにはまだ保存していません。"
+            "下のボタンで内容を確認してください。\n"
+            "**「登録する」を押すまで"
+            "DamageRecordには保存されません。**"
         )
 
-        await message.reply(
-            reply_text
+        image_sha256 = await asyncio.to_thread(
+            self._calculate_sha256,
+            result_image_path,
         )
+
+        ocr_confidence = (
+            self._calculate_ocr_confidence(
+                battle_result
+            )
+        )
+
+        pending = PendingDamageRegistration(
+            owner_id=message.author.id,
+
+            team_id=team.id,
+            team_no=team.team_no,
+
+            boss_id=phase.boss_id,
+            boss_name=battle_result.boss_name,
+
+            boss_phase_id=phase.id,
+            phase_no=phase.phase_no,
+
+            damage=battle_result.total_damage,
+
+            image_path=str(
+                result_image_path
+            ),
+
+            image_sha256=image_sha256,
+
+            ocr_confidence=ocr_confidence,
+        )
+
+        view = DamageConfirmationView(
+            pending=pending,
+            base_content=reply_text,
+        )
+
+        confirmation_message = await message.reply(
+            reply_text,
+            view=view,
+        )
+
+        view.message = confirmation_message
 
     async def _try_battle_result(
         self,
         image_path: Path,
         known_boss_names: list[str],
-        known_boss_max_hps: dict[str, list[int]],
     ) -> BattleOcrResult | None:
         """結果画面かどうかOCRで判定する。"""
 
@@ -454,7 +503,6 @@ class ScreenshotCog(commands.Cog):
                     self.ocr_service.analyze_image,
                     image_path,
                     known_boss_names,
-                    known_boss_max_hps,
                 )
 
         except Exception:
@@ -464,8 +512,8 @@ class ScreenshotCog(commands.Cog):
             )
             return None
 
-        # この3つが揃った場合のみ
-        # ダメージ結果画面と判断する。
+        # Boss名・最大HP・Damageが
+        # 全部取得できた場合のみ結果画面と判定する。
         if (
             parsed.boss_name is None
             or parsed.boss_max_hp is None
@@ -531,6 +579,60 @@ class ScreenshotCog(commands.Cog):
         return (
             character_names,
             confidences,
+        )
+
+    def _calculate_sha256(
+        self,
+        image_path: Path,
+    ) -> str:
+        """画像ファイルのSHA-256を計算する。"""
+
+        sha256 = hashlib.sha256()
+
+        with image_path.open(
+            "rb"
+        ) as file:
+            while True:
+                chunk = file.read(
+                    1024 * 1024
+                )
+
+                if not chunk:
+                    break
+
+                sha256.update(
+                    chunk
+                )
+
+        return sha256.hexdigest()
+    
+    def _calculate_ocr_confidence(
+        self,
+        result: BattleOcrResult,
+    ) -> float | None:
+        """
+        Boss名・最大HP・Damageのうち、
+        最も低いOCR confidenceを
+        全体confidenceとして使用する。
+        """
+
+        values = [
+            result.boss_name_confidence,
+            result.boss_max_hp_confidence,
+            result.total_damage_confidence,
+        ]
+
+        valid_values = [
+            value
+            for value in values
+            if value is not None
+        ]
+
+        if not valid_values:
+            return None
+
+        return min(
+            valid_values
         )
 
 

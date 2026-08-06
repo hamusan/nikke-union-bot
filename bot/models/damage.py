@@ -71,6 +71,7 @@ class DamageRecord(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
+        default=datetime.now,
         server_default=func.now(),
     )
 

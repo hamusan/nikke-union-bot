@@ -10,7 +10,7 @@ from bot.repositories.damage_repository import (
 
 
 class OcrDamageRegistrationService:
-    """OCR解析済みDamageRecordの登録処理。"""
+    """OCR解析済みDamageRecordの登録・更新処理。"""
 
     def register(
         self,
@@ -21,11 +21,20 @@ class OcrDamageRegistrationService:
         image_path: str,
         image_sha256: str,
         ocr_confidence: float | None,
-    ) -> DamageRecord:
+    ) -> tuple[DamageRecord, bool]:
         """
-        OCR解析済みデータをDamageRecordへ保存する。
+        OCR解析済みDamageを登録する。
 
-        Boss.current_hpは変更しない。
+        同じTeam・Boss・PhaseのRecordがあれば更新する。
+
+        Returns:
+            (record, created)
+
+            created=True:
+                新規登録
+
+            created=False:
+                既存DamageRecordを更新
         """
 
         if damage <= 0:
@@ -49,18 +58,56 @@ class OcrDamageRegistrationService:
                 session
             )
 
+            # 同じTeam・Boss・Phaseの
+            # DamageRecordを先に探す。
             existing = (
+                repository.get_by_team_boss_phase(
+                    team_id=team_id,
+                    boss_id=boss_id,
+                    boss_phase_id=boss_phase_id,
+                )
+            )
+
+            # 同じ画像が既に使われているか確認。
+            duplicate_image = (
                 repository.get_by_image_sha256(
                     normalized_hash
                 )
             )
 
+            # 同じ画像が存在していても、
+            # 今回更新するRecord自身なら許可する。
+            #
+            # 別Recordが同じ画像を使用している場合だけ
+            # 二重登録として拒否する。
+            if duplicate_image is not None:
+                if (
+                    existing is None
+                    or duplicate_image.id
+                    != existing.id
+                ):
+                    raise DuplicateDamageImageError(
+                        "このスクリーンショットは"
+                        "別のDamageRecordで"
+                        "既に使用されています。"
+                    )
+
+            # 同じTeam・Boss・Phaseなら更新。
             if existing is not None:
-                raise DuplicateDamageImageError(
-                    "このスクリーンショットは"
-                    "既に登録されています。"
+                record = repository.update_damage(
+                    record=existing,
+                    damage=damage,
+                    image_path=image_path,
+                    image_sha256=normalized_hash,
+                    ocr_confidence=ocr_confidence,
                 )
 
+                return (
+                    record,
+                    False,
+                )
+
+            # 存在しなければ新規作成。
             record = repository.create(
                 team_id=team_id,
                 boss_id=boss_id,
@@ -71,4 +118,7 @@ class OcrDamageRegistrationService:
                 ocr_confidence=ocr_confidence,
             )
 
-            return record
+            return (
+                record,
+                True,
+            )

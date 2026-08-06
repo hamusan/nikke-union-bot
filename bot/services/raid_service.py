@@ -19,6 +19,10 @@ from bot.repositories import (
     BossPhaseRepository,
 )
 
+from bot.data.boss_master import (
+    resolve_phase_no_by_name,
+)
+
 from bot.models.boss_phase import BossPhase
 
 
@@ -300,7 +304,16 @@ class RaidService:
         boss_name: str,
         max_hp: int,
     ) -> BossPhase:
-        """Boss名と最大HPからPhaseを判定する。"""
+        """
+        Boss名と最大HPからPhaseを判定する。
+
+        Phase番号の判定には、
+        DBのmax_hpではなく
+        boss_master.pyを正式な情報源として使用する。
+
+        DBのBossPhaseは、
+        boss_phase_idを取得するために使用する。
+        """
 
         normalized_boss_name = (
             boss_name.strip()
@@ -316,15 +329,42 @@ class RaidService:
                 "Boss HP must be greater than zero."
             )
 
+        # --------------------------------
+        # Boss MasterからPhase番号を判定
+        # --------------------------------
+
+        phase_no = resolve_phase_no_by_name(
+            boss_name=normalized_boss_name,
+            max_hp=max_hp,
+        )
+
+        if phase_no is None:
+            raise BossPhaseNotFoundError(
+                (
+                    "Boss Masterに一致するPhaseが"
+                    "見つかりませんでした: "
+                    f"Boss='{normalized_boss_name}', "
+                    f"Max HP={max_hp}"
+                )
+            )
+
+        # --------------------------------
+        # DBから対応するBossPhaseを取得
+        # --------------------------------
+
         with session_scope() as session:
             raid_repository = RaidRepository(
                 session
             )
+
             boss_repository = BossRepository(
                 session
             )
-            phase_repository = BossPhaseRepository(
-                session
+
+            phase_repository = (
+                BossPhaseRepository(
+                    session
+                )
             )
 
             raid = raid_repository.get_active()
@@ -334,30 +374,37 @@ class RaidService:
                     "Active Raid was not found."
                 )
 
-            boss = boss_repository.get_by_raid_and_name(
-                raid_id=raid.id,
-                name=normalized_boss_name,
+            boss = (
+                boss_repository.get_by_raid_and_name(
+                    raid_id=raid.id,
+                    name=normalized_boss_name,
+                )
             )
 
             if boss is None:
                 raise BossNotFoundError(
-                    f"Boss '{normalized_boss_name}' "
-                    "was not found."
+                    (
+                        f"Boss '{normalized_boss_name}' "
+                        "was not found in the active Raid."
+                    )
                 )
 
             phase = (
-                phase_repository.get_by_boss_and_max_hp(
+                phase_repository.get_by_boss_and_phase(
                     boss_id=boss.id,
-                    max_hp=max_hp,
+                    phase_no=phase_no,
                 )
             )
 
             if phase is None:
                 raise BossPhaseNotFoundError(
                     (
-                        f"Phase was not found for "
-                        f"Boss '{boss.name}' "
-                        f"and Max HP {max_hp}."
+                        "Boss MasterではPhaseが"
+                        "判定できましたが、"
+                        "DBに対応するBossPhaseが"
+                        "存在しません: "
+                        f"Boss='{boss.name}', "
+                        f"Phase={phase_no}"
                     )
                 )
 

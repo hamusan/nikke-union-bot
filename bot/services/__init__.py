@@ -7,10 +7,44 @@ from bot.services.ocr_damage_registration_service import (
     OcrDamageRegistrationService,
 )
 
+from bot.services.optimization import (
+    OptimizationCandidate,
+    OptimizationCandidateService,
+    OptimizationResult,
+    PlayerOptimizationSolver,
+    BossOptimizationPlan,
+    UnionOptimizationResult,
+    UnionOptimizationSolver,
+    AttackAssignment,
+    BossAssignmentSummary,
+    UnionAssignmentPlan,
+    UnionAssignmentService,
+)
+
+from bot.services.boss_master_service import (
+    BossMasterService,
+    RaidBossSlot,
+    RaidBossSyncResult,
+)
+
 __all__ = [
     "DamageService",
     "PlayerService",
     "RaidService",
     "TeamService",
     "OcrDamageRegistrationService",
+    "OptimizationCandidate",
+    "OptimizationCandidateService",
+    "OptimizationResult",
+    "PlayerOptimizationSolver",
+    "BossOptimizationPlan",
+    "UnionOptimizationResult",
+    "UnionOptimizationSolver",
+    "AttackAssignment",
+    "BossAssignmentSummary",
+    "UnionAssignmentPlan",
+    "UnionAssignmentService",
+    "BossMasterService",
+    "RaidBossSyncResult",
+    "RaidBossSlot",
 ]

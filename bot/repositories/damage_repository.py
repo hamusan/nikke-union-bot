@@ -114,3 +114,89 @@ class DamageRepository:
                 statement
             ).all()
         )
+    def get_by_team_boss_phase(
+        self,
+        team_id: int,
+        boss_id: int,
+        boss_phase_id: int,
+    ) -> DamageRecord | None:
+        """同じTeam・Boss・PhaseのDamageRecordを取得する。"""
+
+        statement = select(
+            DamageRecord
+        ).where(
+            DamageRecord.team_id == team_id,
+            DamageRecord.boss_id == boss_id,
+            DamageRecord.boss_phase_id
+            == boss_phase_id,
+        )
+
+        return self._session.scalar(
+            statement
+        )
+
+
+    def update_damage(
+        self,
+        record: DamageRecord,
+        damage: int,
+        image_path: str,
+        image_sha256: str,
+        ocr_confidence: float | None,
+    ) -> DamageRecord:
+        """既存DamageRecordを最新結果で更新する。"""
+
+        record.damage = damage
+        record.image_path = image_path
+        record.image_sha256 = image_sha256
+        record.ocr_confidence = ocr_confidence
+
+        self._session.flush()
+
+        return record
+
+    def list_by_raid_id(
+        self,
+        raid_id: int,
+    ) -> list[DamageRecord]:
+        """指定Raidの最適化対象DamageRecordを取得する。"""
+
+        from sqlalchemy.orm import selectinload
+
+        from bot.models import (
+            Boss,
+            Team,
+        )
+
+        statement = (
+            select(DamageRecord)
+            .join(
+                Boss,
+                DamageRecord.boss_id == Boss.id,
+            )
+            .where(
+                Boss.raid_id == raid_id,
+                DamageRecord.boss_phase_id.is_not(None),
+            )
+            .options(
+                selectinload(
+                    DamageRecord.team
+                ).selectinload(
+                    Team.members
+                ),
+                selectinload(
+                    DamageRecord.boss_phase
+                ),
+            )
+            .order_by(
+                DamageRecord.team_id,
+                DamageRecord.boss_id,
+                DamageRecord.boss_phase_id,
+            )
+        )
+
+        return list(
+            self._session.scalars(
+                statement
+            ).all()
+        )
