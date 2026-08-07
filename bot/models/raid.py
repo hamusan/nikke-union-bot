@@ -35,3 +35,9 @@ class Raid(Base):
         back_populates="raid",
         cascade="all, delete-orphan",
     )
+
+    current_phase: Mapped[int] = mapped_column(
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
