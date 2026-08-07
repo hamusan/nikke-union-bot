@@ -1,14 +1,11 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class AttackAssignment:
-    """
-    1つの攻撃割り当て。
-
-    「誰が・どの編成で・どのBossを殴るか」
-    を人間が読める形で保持する。
-    """
+    """1回の攻撃割り当て。"""
 
     damage_record_id: int
 
@@ -18,7 +15,10 @@ class AttackAssignment:
     team_id: int
     team_no: int
 
-    character_names: tuple[str, ...]
+    character_names: tuple[
+        str,
+        ...
+    ]
 
     boss_id: int
     boss_name: str
@@ -31,7 +31,15 @@ class AttackAssignment:
 
 @dataclass(frozen=True)
 class BossAssignmentSummary:
-    """Bossごとの割り当て結果。"""
+    """
+    Bossごとの最適化結果。
+
+    max_hp:
+        そのPhaseにおけるBoss本来の最大HP
+
+    remaining_hp:
+        最適化開始時点の現在残HP
+    """
 
     boss_id: int
     boss_name: str
@@ -40,6 +48,7 @@ class BossAssignmentSummary:
     phase_no: int
 
     max_hp: int
+    remaining_hp: int
 
     assignments: tuple[
         AttackAssignment,
@@ -50,10 +59,28 @@ class BossAssignmentSummary:
     effective_damage: int
     overkill_damage: int
 
+    @property
+    def defeated(
+        self,
+    ) -> bool:
+        return (
+            self.remaining_hp <= 0
+        )
+
+    @property
+    def damage_taken(
+        self,
+    ) -> int:
+        return max(
+            0,
+            self.max_hp
+            - self.remaining_hp,
+        )
+
 
 @dataclass(frozen=True)
 class UnionAssignmentPlan:
-    """ユニオン全体の攻撃割り当て結果。"""
+    """Raid全体の最適化結果。"""
 
     raid_id: int
 

@@ -3,10 +3,8 @@ from collections import defaultdict
 from sqlalchemy import select
 
 from bot.core.database import session_scope
-from bot.data import get_boss_phase_hp
 from bot.models import (
     Boss,
-    BossPhase,
     Character,
     Player,
     TeamMember,
@@ -23,6 +21,10 @@ from bot.services.optimization.union_solver import (
     UnionOptimizationSolver,
 )
 
+from bot.services.optimization.context_service import (
+    OptimizationRaidContextService,
+)
+
 
 class UnionAssignmentService:
     """
@@ -36,6 +38,10 @@ class UnionAssignmentService:
             OptimizationCandidateService()
         )
 
+        self._context_service = (
+            OptimizationRaidContextService()
+        )
+
         self._solver = (
             UnionOptimizationSolver()
         )
@@ -45,18 +51,71 @@ class UnionAssignmentService:
         raid_id: int,
         max_attacks_per_player: int = 3,
     ) -> UnionAssignmentPlan:
-        """指定Raidの最適攻撃割り当てを生成する。"""
+        """
+        現在のRaid進行状況を考慮して
+        最適攻撃割り当てを生成する。
+        """
 
-        # --------------------------------
-        # 最適化候補
-        # --------------------------------
+        # ====================================
+        # 現在のRaid最適化Context
+        # ====================================
 
-        candidates = (
+        context = (
+            self._context_service
+            .build_for_raid(
+                raid_id
+            )
+        )
+
+        # ====================================
+        # Phase 3攻略済み
+        # ====================================
+
+        if context.final_reached:
+            return UnionAssignmentPlan(
+                raid_id=raid_id,
+                assignments=(),
+                boss_summaries=(),
+                attack_count=0,
+                total_nominal_damage=0,
+                total_effective_damage=0,
+            )
+
+        # ====================================
+        # 全Damage候補
+        # ====================================
+
+        all_candidates = (
             self._candidate_service
             .build_for_raid(
                 raid_id=raid_id
             )
         )
+
+        active_phase_ids = (
+            context.active_boss_phase_ids
+        )
+
+        # ====================================
+        # 現在Phase
+        # +
+        # HPが残っているBoss
+        # だけに限定
+        # ====================================
+
+        candidates = [
+            candidate
+            for candidate
+            in all_candidates
+
+            if (
+                candidate.phase_no
+                == context.phase_no
+
+                and candidate.boss_phase_id
+                in active_phase_ids
+            )
+        ]
 
         if not candidates:
             return UnionAssignmentPlan(
@@ -68,135 +127,28 @@ class UnionAssignmentService:
                 total_effective_damage=0,
             )
 
-        # --------------------------------
-        # Boss Masterから正式なHPを取得
-        # --------------------------------
+        # ====================================
+        # Solverへ渡すHP
         #
-        # DBのBossPhase.max_hpは使用しない。
-        #
-        # DB:
-        #   boss_phase_id
-        #   phase_no
-        #   boss_key
-        #
-        # Boss Master:
-        #   正式なmax_hp
-        #
-        # という役割分担にする。
-        # --------------------------------
+        # BossPhase.max_hpではなく
+        # 現在のremaining_hp
+        # ====================================
 
-        phase_ids = {
-            candidate.boss_phase_id
-            for candidate in candidates
-        }
+        boss_hp_by_phase_id = (
+            context.boss_hp_by_phase_id
+        )
 
-        with session_scope() as session:
-            phase_rows = list(
-                session.execute(
-                    select(
-                        BossPhase.id.label(
-                            "boss_phase_id"
-                        ),
-                        BossPhase.phase_no.label(
-                            "phase_no"
-                        ),
-                        Boss.boss_key.label(
-                            "boss_key"
-                        ),
-                        Boss.name.label(
-                            "boss_name"
-                        ),
-                    )
-                    .join(
-                        Boss,
-                        Boss.id
-                        == BossPhase.boss_id,
-                    )
-                    .where(
-                        BossPhase.id.in_(
-                            phase_ids
-                        )
-                    )
-                ).all()
-            )
-
-        boss_hp_by_phase_id: dict[
-            int,
-            int,
-        ] = {}
-
-        for row in phase_rows:
-            # --------------------------------
-            # Boss Master未登録Bossは
-            # 最適化できない
-            # --------------------------------
-
-            if row.boss_key is None:
-                raise ValueError(
-                    (
-                        "Boss Master未登録のBossが"
-                        "最適化候補に含まれています: "
-                        f"Boss='{row.boss_name}', "
-                        f"boss_phase_id="
-                        f"{row.boss_phase_id}"
-                    )
-                )
-
-            # --------------------------------
-            # Masterから正式HP取得
-            # --------------------------------
-
-            max_hp = get_boss_phase_hp(
-                boss_key=row.boss_key,
-                phase_no=row.phase_no,
-            )
-
-            if max_hp is None:
-                raise ValueError(
-                    (
-                        "Boss MasterにPhase HPが"
-                        "登録されていません: "
-                        f"Boss='{row.boss_name}', "
-                        f"boss_key='{row.boss_key}', "
-                        f"Phase={row.phase_no}"
-                    )
-                )
-
-            boss_hp_by_phase_id[
-                row.boss_phase_id
-            ] = max_hp
-
-            # --------------------------------
-            # DBに存在しないBossPhase検出
-            # --------------------------------
-
-            resolved_phase_ids = set(
-                boss_hp_by_phase_id
-            )
-
-            missing_phase_ids = (
-                phase_ids
-                - resolved_phase_ids
-            )
-
-            if missing_phase_ids:
-                raise ValueError(
-                    (
-                        "最適化候補が参照する"
-                        "BossPhaseがDBに存在しません: "
-                        f"{sorted(missing_phase_ids)}"
-                    )
-                )
-
-        # --------------------------------
-        # OR-Tools最適化
-        # --------------------------------
+        # ====================================
+        # OR-Tools
+        # ====================================
 
         result = self._solver.solve(
             candidates=candidates,
+
             boss_hp_by_phase_id=(
                 boss_hp_by_phase_id
             ),
+
             max_attacks_per_player=(
                 max_attacks_per_player
             ),
@@ -424,6 +376,11 @@ class UnionAssignmentService:
             for assignment in assignments
         }
 
+        boss_target_by_phase_id = {
+            boss.boss_phase_id: boss
+            for boss in context.bosses
+        }
+
         boss_summaries: list[
             BossAssignmentSummary
         ] = []
@@ -452,6 +409,22 @@ class UnionAssignmentService:
             if not boss_assignments:
                 continue
 
+            target = (
+                boss_target_by_phase_id.get(
+                    boss_plan.boss_phase_id
+                )
+            )
+
+            if target is None:
+                raise ValueError(
+                    (
+                        "最適化対象Bossの"
+                        "Raid Contextがありません: "
+                        "boss_phase_id="
+                        f"{boss_plan.boss_phase_id}"
+                    )
+                )
+            
             boss_name = (
                 boss_name_by_id.get(
                     boss_plan.boss_id,
@@ -479,6 +452,10 @@ class UnionAssignmentService:
 
                     max_hp=(
                         boss_plan.max_hp
+                    ),
+                    
+                    remaining_hp=(
+                        target.remaining_hp
                     ),
 
                     assignments=tuple(
