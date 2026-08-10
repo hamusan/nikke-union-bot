@@ -16,6 +16,7 @@ EXTENSIONS = (
     "bot.cogs.damage",
     "bot.cogs.screenshot",
     "bot.cogs.optimization",
+    "bot.cogs.attack",
     "bot.cogs.raid_boss_master",
 )
 

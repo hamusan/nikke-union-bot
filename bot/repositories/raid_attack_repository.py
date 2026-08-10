@@ -87,6 +87,33 @@ class RaidAttackRepository:
             ).all()
         )
 
+    def list_by_raid_and_team(
+        self,
+        raid_id: int,
+        team_id: int,
+    ) -> list[RaidAttack]:
+        """
+        Raid + TeamのRaidAttackを
+        古い順に取得する。
+        """
+
+        return list(
+            self.session.scalars(
+                select(RaidAttack)
+                .where(
+                    RaidAttack.raid_id
+                    == raid_id
+                )
+                .where(
+                    RaidAttack.team_id
+                    == team_id
+                )
+                .order_by(
+                    RaidAttack.id
+                )
+            ).all()
+        )
+
     def create(
         self,
         *,

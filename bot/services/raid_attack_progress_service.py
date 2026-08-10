@@ -10,6 +10,9 @@ from bot.models.team import Team
 from bot.repositories.raid_attack_repository import (
     RaidAttackRepository,
 )
+from bot.repositories.raid_attack_cancellation_repository import (
+    RaidAttackCancellationRepository,
+)
 from bot.repositories.raid_boss_progress_repository import (
     RaidBossProgressRepository,
 )
@@ -62,6 +65,7 @@ class RaidAttackProgressService:
         damage: int,
         source_message_id: int | None = None,
         image_sha256: str | None = None,
+        expected_phase_no: int | None = None,
     ) -> RaidAttackProgressResult:
         # --------------------------------
         # 基本Validation
@@ -98,6 +102,12 @@ class RaidAttackProgressService:
                 )
             )
 
+            cancellation_repository = (
+                RaidAttackCancellationRepository(
+                    session
+                )
+            )
+
             progress_repository = (
                 RaidBossProgressRepository(
                     session
@@ -129,6 +139,50 @@ class RaidAttackProgressService:
                     attack_repository
                     .get_by_image_sha256(
                         image_sha256
+                    )
+                )
+
+            # --------------------------------
+            # 同じTeamの実凸済み確認
+            #
+            # source_message_id / image_sha256
+            # がNoneのコマンド登録でも、
+            # 同一Raidで同じTeamを
+            # 二重登録させない。
+            #
+            # Cancellation済みRaidAttackは
+            # 無効なので再実凸可能。
+            # --------------------------------
+
+            team_attacks = (
+                attack_repository
+                .list_by_raid_and_team(
+                    raid_id=raid_id,
+                    team_id=team_id,
+                )
+            )
+
+            active_team_attacks = [
+                attack
+                for attack in team_attacks
+                if not cancellation_repository
+                .is_cancelled(
+                    attack.id
+                )
+            ]
+
+            if active_team_attacks:
+                active_attack = (
+                    active_team_attacks[0]
+                )
+
+                raise ValueError(
+                    (
+                        "このTeamはすでに"
+                        "実凸済みです: "
+                        f"team_id={team_id}, "
+                        "raid_attack_id="
+                        f"{active_attack.id}"
                     )
                 )
 
@@ -193,6 +247,27 @@ class RaidAttackProgressService:
             current_phase = (
                 raid.current_phase
             )
+
+            # --------------------------------
+            # Screenshot解析時のPhaseと
+            # 現在Phaseが一致するか確認
+            # --------------------------------
+
+            if (
+                expected_phase_no is not None
+                and current_phase
+                != expected_phase_no
+            ):
+                raise ValueError(
+                    (
+                        "スクリーンショット解析後に"
+                        "Raid Phaseが変化しました: "
+                        f"expected_phase="
+                        f"{expected_phase_no}, "
+                        f"current_phase="
+                        f"{current_phase}"
+                    )
+                )
 
             # --------------------------------
             # Boss

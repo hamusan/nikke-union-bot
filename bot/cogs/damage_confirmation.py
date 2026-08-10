@@ -14,14 +14,23 @@ from bot.services import OcrDamageRegistrationService
 class PendingDamageRegistration:
     """確認待ちのDamage登録情報。"""
 
+    # 元のDiscord投稿
     owner_id: int
+    source_message_id: int
 
+    # Raid
+    raid_id: int
+
+    # Player / Team
+    player_id: int
     team_id: int
     team_no: int
 
+    # Boss
     boss_id: int
     boss_name: str
 
+    # Screenshotから判定したPhase
     boss_phase_id: int
     phase_no: int
 
@@ -127,16 +136,23 @@ class DamageConfirmationView(
         return False
 
     @discord.ui.button(
-        label="登録する",
-        style=discord.ButtonStyle.success,
-        emoji="✅",
+    label="登録する",
+    style=discord.ButtonStyle.success,
+    emoji="✅",
     )
     async def confirm_button(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ) -> None:
-        """DamageRecordへ正式登録する。"""
+        """
+        DamageRecordへ正式登録する。
+
+        この操作ではRaidAttackは登録しない。
+        Boss HPやRaid Phaseも変更しない。
+        """
+
+        _ = button
 
         await interaction.response.defer()
 
@@ -149,16 +165,19 @@ class DamageConfirmationView(
                 return
 
             try:
-                record, created = await asyncio.to_thread(
-                self.registration_service.register,
-                self.pending.team_id,
-                self.pending.boss_id,
-                self.pending.boss_phase_id,
-                self.pending.damage,
-                self.pending.image_path,
-                self.pending.image_sha256,
-                self.pending.ocr_confidence,
-            )
+                (
+                    record,
+                    damage_record_created,
+                ) = await asyncio.to_thread(
+                    self.registration_service.register,
+                    self.pending.team_id,
+                    self.pending.boss_id,
+                    self.pending.boss_phase_id,
+                    self.pending.damage,
+                    self.pending.image_path,
+                    self.pending.image_sha256,
+                    self.pending.ocr_confidence,
+                )
 
             except DuplicateDamageImageError:
                 self._finished = True
@@ -208,7 +227,7 @@ class DamageConfirmationView(
 
             self._disable_all_buttons()
 
-            if created:
+            if damage_record_created:
                 result_message = (
                     "✅ **DamageRecordへ新規登録しました。**"
                 )
@@ -223,7 +242,9 @@ class DamageConfirmationView(
                     + "\n\n"
                     + result_message
                     + "\n"
-                    f"Record ID: `{record.id}`"
+                    f"DamageRecord ID: `{record.id}`"
+                    + "\n\n"
+                    "ℹ️ この操作では実凸は登録されません。"
                 ),
                 view=self,
             )

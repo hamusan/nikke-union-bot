@@ -45,6 +45,7 @@ class RaidAttackCoordinatorService:
         damage: int,
         source_message_id: int | None = None,
         image_sha256: str | None = None,
+        expected_phase_no: int | None = None,
     ) -> RaidAttackCoordinatorResult:
         # RaidAttack作成 + Boss HP減算
         attack_result = (
@@ -59,6 +60,9 @@ class RaidAttackCoordinatorService:
                 ),
                 image_sha256=(
                     image_sha256
+                ),
+                expected_phase_no=(
+                    expected_phase_no
                 ),
             )
         )

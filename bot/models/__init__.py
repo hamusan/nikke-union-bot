@@ -15,6 +15,10 @@ from bot.models.raid_boss_progress import (
 )
 from bot.models.raid_attack import RaidAttack
 
+from bot.models.raid_attack_cancellation import (
+    RaidAttackCancellation,
+)
+
 __all__ = [
     "Base",
     "Boss",

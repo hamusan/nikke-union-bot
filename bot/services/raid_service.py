@@ -311,6 +311,18 @@ class RaidService:
         DBのmax_hpではなく
         boss_master.pyを正式な情報源として使用する。
 
+        OCRで
+
+            残HP / 最大HP
+
+        の "/" を認識できず、
+
+            残HP最大HP
+
+        のように数字が連結された場合は、
+        右端からBoss Masterの最大HPと照合して
+        最大HPを復元する。
+
         DBのBossPhaseは、
         boss_phase_idを取得するために使用する。
         """
@@ -331,6 +343,8 @@ class RaidService:
 
         # --------------------------------
         # Boss MasterからPhase番号を判定
+        #
+        # まず通常の完全一致。
         # --------------------------------
 
         phase_no = resolve_phase_no_by_name(
@@ -338,13 +352,38 @@ class RaidService:
             max_hp=max_hp,
         )
 
+        resolved_max_hp = max_hp
+
+        # --------------------------------
+        # 完全一致しなかった場合
+        #
+        # OCRが
+        #
+        #   残HP / 最大HP
+        #
+        # の "/" を認識できず、
+        #
+        #   残HP最大HP
+        #
+        # と連結した可能性を調べる。
+        # --------------------------------
+
+        if phase_no is None:
+            (
+                phase_no,
+                resolved_max_hp,
+            ) = self._resolve_joined_hp(
+                boss_name=normalized_boss_name,
+                recognized_hp=max_hp,
+            )
+
         if phase_no is None:
             raise BossPhaseNotFoundError(
                 (
                     "Boss Masterに一致するPhaseが"
                     "見つかりませんでした: "
                     f"Boss='{normalized_boss_name}', "
-                    f"Max HP={max_hp}"
+                    f"Recognized HP={max_hp}"
                 )
             )
 
@@ -390,7 +429,8 @@ class RaidService:
                 )
 
             phase = (
-                phase_repository.get_by_boss_and_phase(
+                phase_repository
+                .get_by_boss_and_phase(
                     boss_id=boss.id,
                     phase_no=phase_no,
                 )
@@ -408,7 +448,164 @@ class RaidService:
                     )
                 )
 
+            # Boss MasterとDBの最大HPが
+            # 食い違っている場合は登録しない。
+            if phase.max_hp != resolved_max_hp:
+                raise BossPhaseNotFoundError(
+                    (
+                        "Boss MasterとDBの最大HPが"
+                        "一致しません: "
+                        f"Boss='{boss.name}', "
+                        f"Phase={phase_no}, "
+                        f"Master HP={resolved_max_hp}, "
+                        f"DB HP={phase.max_hp}"
+                    )
+                )
+
             return phase
+
+    def _resolve_joined_hp(
+        self,
+        *,
+        boss_name: str,
+        recognized_hp: int,
+    ) -> tuple[int | None, int]:
+        """
+        OCRで残HPと最大HPが連結された値から、
+        Boss Masterの最大HPを復元する。
+
+        例:
+
+            本来:
+                85,123,456,789
+                /
+                150,841,813,600
+
+            OCR:
+                85123456789150841813600
+
+        右端から1桁ずつ候補を伸ばし、
+        Boss Masterのmax_hpと完全一致する候補を探す。
+
+        複数候補が見つかった場合は、
+        最も桁数の長い一致を採用する。
+        """
+
+        recognized_text = str(
+            recognized_hp
+        )
+
+        matches: list[
+            tuple[
+                int,
+                int,
+                int,
+            ]
+        ] = []
+
+        # --------------------------------
+        # 右端から
+        #
+        # 1桁
+        # 2桁
+        # 3桁
+        # ...
+        #
+        # と候補を伸ばす。
+        # --------------------------------
+
+        for digit_count in range(
+            1,
+            len(recognized_text),
+        ):
+            max_hp_text = (
+                recognized_text[
+                    -digit_count:
+                ]
+            )
+
+            remaining_hp_text = (
+                recognized_text[
+                    :-digit_count
+                ]
+            )
+
+            if not remaining_hp_text:
+                continue
+
+            # 先頭0を含む不自然な最大HP候補は
+            # 対象外にする。
+            if max_hp_text.startswith(
+                "0"
+            ):
+                continue
+
+            candidate_max_hp = int(
+                max_hp_text
+            )
+
+            candidate_phase_no = (
+                resolve_phase_no_by_name(
+                    boss_name=boss_name,
+                    max_hp=candidate_max_hp,
+                )
+            )
+
+            # Boss Masterに存在しないHP。
+            if candidate_phase_no is None:
+                continue
+
+            # --------------------------------
+            # 左側が本当に残HPとして
+            # 成立するか確認する。
+            # --------------------------------
+
+            remaining_hp = int(
+                remaining_hp_text
+            )
+
+            if remaining_hp < 0:
+                continue
+
+            if (
+                remaining_hp
+                > candidate_max_hp
+            ):
+                continue
+
+            matches.append(
+                (
+                    digit_count,
+                    candidate_phase_no,
+                    candidate_max_hp,
+                )
+            )
+
+        if not matches:
+            return (
+                None,
+                recognized_hp,
+            )
+
+        # --------------------------------
+        # 万一複数のMaster HPが
+        # 末尾一致した場合、
+        # 最も長い完全一致を採用する。
+        # --------------------------------
+
+        (
+            _,
+            phase_no,
+            resolved_max_hp,
+        ) = max(
+            matches,
+            key=lambda item: item[0],
+        )
+
+        return (
+            phase_no,
+            resolved_max_hp,
+        )
 
     def list_boss_phases(
         self,

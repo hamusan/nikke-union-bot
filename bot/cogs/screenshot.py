@@ -30,6 +30,10 @@ from bot.services.team_image import (
     TeamPortraitCropper,
 )
 
+from bot.services.raid_boss_progress_service import (
+    RaidBossProgressService,
+)
+
 
 logger = get_logger()
 
@@ -75,6 +79,10 @@ class ScreenshotCog(commands.Cog):
         self.ocr_service = BattleOcrService()
         self.raid_service = RaidService()
         self.team_service = TeamService()
+
+        self.raid_progress_service = (
+            RaidBossProgressService()
+        )
 
         self.team_cropper = TeamPortraitCropper()
 
@@ -358,7 +366,56 @@ class ScreenshotCog(commands.Cog):
                     "登録されていません。\n\n"
                     f"Boss: {battle_result.boss_name}\n"
                     f"最大HP: "
-                    f"{battle_result.boss_max_hp:,}"
+                    f"**{phase.max_hp:,}**\n"
+                )
+            )
+            return
+
+        # --------------------------------
+        # 現在のRaid Phaseを確認
+        # --------------------------------
+
+        active_phase = await asyncio.to_thread(
+            self.raid_progress_service
+            .get_active_phase
+        )
+
+        if active_phase is None:
+            await message.reply(
+                (
+                    "現在開催中のRaidが"
+                    "見つかりません。"
+                )
+            )
+            return
+
+        if active_phase.phase_no > 3:
+            await message.reply(
+                (
+                    "このRaidはすでに"
+                    "最終Phaseへ到達しています。\n"
+                    "最終Phaseでは"
+                    "このBotによるHP管理・"
+                    "実凸登録は行いません。"
+                )
+            )
+            return
+
+        if (
+            phase.phase_no
+            != active_phase.phase_no
+        ):
+            await message.reply(
+                (
+                    "⚠️ スクリーンショットの"
+                    "Phaseと現在のRaid Phaseが"
+                    "一致しません。\n\n"
+                    f"スクショ判定: "
+                    f"**Phase {phase.phase_no}**\n"
+                    f"現在Raid: "
+                    f"**Phase {active_phase.phase_no}**\n\n"
+                    "現在Phaseの結果画像を"
+                    "投稿してください。"
                 )
             )
             return
@@ -436,7 +493,7 @@ class ScreenshotCog(commands.Cog):
             f"Boss: **{battle_result.boss_name}**\n"
             f"Phase: **{phase.phase_no}**\n"
             f"最大HP: "
-            f"**{battle_result.boss_max_hp:,}**\n"
+            f"**{phase.max_hp:,}**\n"
             f"Damage: "
             f"**{battle_result.total_damage:,}**\n\n"
             "下のボタンで内容を確認してください。\n"
@@ -458,16 +515,26 @@ class ScreenshotCog(commands.Cog):
         pending = PendingDamageRegistration(
             owner_id=message.author.id,
 
+            source_message_id=message.id,
+
+            raid_id=active_phase.raid_id,
+
+            player_id=team.player_id,
+
             team_id=team.id,
             team_no=team.team_no,
 
             boss_id=phase.boss_id,
-            boss_name=battle_result.boss_name,
+            boss_name=(
+                battle_result.boss_name
+            ),
 
             boss_phase_id=phase.id,
             phase_no=phase.phase_no,
 
-            damage=battle_result.total_damage,
+            damage=(
+                battle_result.total_damage
+            ),
 
             image_path=str(
                 result_image_path
