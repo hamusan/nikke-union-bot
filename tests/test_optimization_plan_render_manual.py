@@ -89,6 +89,7 @@ def main() -> None:
         phase_no=3,
 
         max_hp=max_hp,
+        remaining_hp=150_841_811_600,
 
         assignments=(
             attack_1,

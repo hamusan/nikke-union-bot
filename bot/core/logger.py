@@ -19,6 +19,7 @@ logger.add(
     rotation="10 MB",
     encoding="utf-8",
     level="INFO",
+    diagnose=False,
 )
 
 

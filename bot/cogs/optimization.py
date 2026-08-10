@@ -18,14 +18,13 @@ from bot.services import (
 )
 from bot.services.optimization.plan_renderer import (
     OptimizationPlanImageRenderer,
+    RenderedBossImage,
 )
 from bot.services.optimization.session_service import (
     OptimizationSessionService,
     OptimizationSessionState,
 )
 
-
-IMAGE_FILENAME = "optimization_plan.png"
 
 
 @dataclass
@@ -336,7 +335,7 @@ class OptimizationCog(
         try:
             (
                 content,
-                image_bytes,
+                boss_images,
             ) = await self._build_plan_payload(
                 raid_id=raid_id,
                 interval_minutes=(
@@ -348,7 +347,7 @@ class OptimizationCog(
             logger.exception(
                 (
                     "Failed to build initial "
-                    "optimization image"
+                    "optimization images"
                 )
             )
 
@@ -381,13 +380,21 @@ class OptimizationCog(
         # --------------------------------
 
         try:
-            message = await channel.send(
-                content=content,
-                file=self._create_image_file(
-                    image_bytes
-                ),
-                view=view,
+            image_files = self._create_image_files(
+                boss_images
             )
+
+            if image_files:
+                message = await channel.send(
+                    content=content,
+                    files=image_files,
+                    view=view,
+                )
+            else:
+                message = await channel.send(
+                    content=content,
+                    view=view,
+                )
 
         except discord.Forbidden:
             await interaction.edit_original_response(
@@ -639,7 +646,7 @@ class OptimizationCog(
                 try:
                     (
                         content,
-                        image_bytes,
+                        boss_images,
                     ) = await self._build_plan_payload(
                         raid_id=raid_id,
                         interval_minutes=(
@@ -650,7 +657,7 @@ class OptimizationCog(
                     await self._edit_plan_message(
                         message=message,
                         content=content,
-                        image_bytes=image_bytes,
+                        boss_images=boss_images,
                         view=view,
                     )
 
@@ -912,7 +919,7 @@ class OptimizationCog(
         try:
             (
                 content,
-                image_bytes,
+                boss_images,
             ) = await self._build_plan_payload(
                 raid_id=state.raid_id,
                 interval_minutes=(
@@ -923,7 +930,7 @@ class OptimizationCog(
             await self._edit_plan_message(
                 message=message,
                 content=content,
-                image_bytes=image_bytes,
+                boss_images=boss_images,
                 view=view,
             )
 
@@ -1033,11 +1040,11 @@ class OptimizationCog(
         interval_minutes: int,
     ) -> tuple[
         str,
-        bytes,
+        list[RenderedBossImage],
     ]:
         """
         最適化を実行して、
-        Discord表示用テキストとPNGを生成する。
+        Discord本文とBoss別PNGを生成する。
         """
 
         raid = await asyncio.to_thread(
@@ -1066,14 +1073,17 @@ class OptimizationCog(
         )
 
         # --------------------------------
-        # Pillow Renderer
+        # BossごとのPillow画像
         # --------------------------------
 
-        image_bytes = await asyncio.to_thread(
-            self.image_renderer.render,
+        boss_images = await asyncio.to_thread(
+            self.image_renderer.render_boss_images,
             plan,
-            raid_name,
         )
+
+        # --------------------------------
+        # Discord本文
+        # --------------------------------
 
         now = discord.utils.utcnow()
 
@@ -1092,7 +1102,7 @@ class OptimizationCog(
 
         return (
             content,
-            image_bytes,
+            boss_images,
         )
 
     def _build_message_content(
@@ -1102,58 +1112,86 @@ class OptimizationCog(
         interval_minutes: int,
         timestamp: int,
     ) -> str:
-        """
-        画像の上に表示する簡易ステータス。
-        詳細はPNG側へまとめる。
-        """
+        """Discord本文用の全体情報を生成する。"""
+
+        phase_nos = sorted(
+            {
+                boss.phase_no
+                for boss in plan.boss_summaries
+            }
+        )
+
+        if len(phase_nos) == 1:
+            phase_text = str(
+                phase_nos[0]
+            )
+        elif phase_nos:
+            phase_text = " / ".join(
+                str(phase_no)
+                for phase_no in phase_nos
+            )
+        else:
+            phase_text = "-"
 
         return (
             "## ユニオンレイド 最適化プラン\n"
             f"Raid: **{raid_name}**\n"
-            f"割り当て: **{plan.attack_count}凸**\n"
+            f"Phase: **{phase_text}**\n"
+            f"対象Boss: **{len(plan.boss_summaries)}体**\n"
+            f"推奨凸数: **{plan.attack_count}凸**\n"
+            "総割当Damage: "
+            f"**{plan.total_nominal_damage:,}**\n"
+            "総有効Damage: "
+            f"**{plan.total_effective_damage:,}**\n"
             f"更新間隔: **{interval_minutes}分**\n"
             f"最終更新: <t:{timestamp}:R>\n\n"
-            "※ 詳細な編成・Damageは"
-            "下の画像を確認してください。"
+            "※ Boss名・Boss HP・Boss有効Damage・"
+            "推奨凸編成は添付画像を確認してください。"
         )
 
-    def _create_image_file(
+    def _create_image_files(
         self,
-        image_bytes: bytes,
-    ) -> discord.File:
-        """PNG bytesからDiscord Fileを作る。"""
+        boss_images: list[
+            RenderedBossImage
+        ],
+    ) -> list[discord.File]:
+        """Boss別PNGをDiscord Fileへ変換する。"""
 
-        return discord.File(
-            fp=BytesIO(
-                image_bytes
-            ),
-            filename=IMAGE_FILENAME,
-            description=(
-                "ユニオンレイド最適化プラン"
-            ),
-        )
+        return [
+            discord.File(
+                fp=BytesIO(
+                    rendered.png_bytes
+                ),
+                filename=rendered.filename,
+                description=(
+                    f"{rendered.boss_name} "
+                    "最適化プラン"
+                ),
+            )
+            for rendered in boss_images
+        ]
 
     async def _edit_plan_message(
         self,
         message: discord.Message,
         content: str,
-        image_bytes: bytes,
+        boss_images: list[
+            RenderedBossImage
+        ],
         view: OptimizationStopView,
     ) -> None:
         """
         同じDiscord Messageの
-        添付画像を新しいPNGへ差し替える。
+        Boss別添付画像をすべて差し替える。
         """
 
-        image_file = self._create_image_file(
-            image_bytes
+        image_files = self._create_image_files(
+            boss_images
         )
 
         await message.edit(
             content=content,
-            attachments=[
-                image_file
-            ],
+            attachments=image_files,
             view=view,
         )
 
