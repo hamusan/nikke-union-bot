@@ -13,6 +13,7 @@ from bot.models.optimization_session import (
 from bot.models.raid_boss_progress import (
     RaidBossProgress,
 )
+from bot.models.raid_attack import RaidAttack
 
 __all__ = [
     "Base",
@@ -26,4 +27,5 @@ __all__ = [
     "TeamMember",
     "OptimizationSession",
     "RaidBossProgress",
+    "RaidAttack",
 ]
