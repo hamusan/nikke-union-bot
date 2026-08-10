@@ -451,7 +451,7 @@ class UnionAssignmentService:
                     ),
 
                     max_hp=(
-                        boss_plan.max_hp
+                        target.max_hp
                     ),
                     
                     remaining_hp=(
